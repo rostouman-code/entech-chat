@@ -1,210 +1,52 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Entech Освещение - AI Консультант</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .chat-container { 
-            width: 90%; 
-            max-width: 800px; 
-            background: white; 
-            border-radius: 20px; 
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .chat-header { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            color: white; 
-            padding: 25px; 
-            text-align: center; 
-        }
-        .chat-header h2 { margin: 0 0 5px 0; font-size: 28px; }
-        .chat-header p { margin: 0; opacity: 0.9; font-size: 16px; }
-        .chat-body { 
-            padding: 25px; 
-            height: 500px; 
-            overflow-y: auto; 
-            background: #f8f9fa;
-        }
-        .message { 
-            margin: 15px 0; 
-            padding: 15px 20px; 
-            border-radius: 25px; 
-            max-width: 75%; 
-            word-wrap: break-word;
-            animation: fadeIn 0.3s ease-in;
-        }
-        .user-message { 
-            background: linear-gradient(135deg, #007bff, #0056b3); 
-            color: white; 
-            margin-left: auto; 
-            text-align: right; 
-            border-bottom-right-radius: 5px;
-        }
-        .bot-message { 
-            background: white; 
-            color: #333; 
-            margin-right: auto; 
-            border: 1px solid #e9ecef;
-            border-bottom-left-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-        .quick-reply { 
-            display: inline-block; 
-            background: linear-gradient(135deg, #28a745, #20c997); 
-            color: white; 
-            padding: 12px 24px; 
-            margin: 8px 4px; 
-            border-radius: 25px; 
-            cursor: pointer; 
-            text-decoration: none; 
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-        }
-        .quick-reply:hover { 
-            transform: translateY(-2px); 
-            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
-        }
-        .quick-replies { text-align: center; margin: 20px 0; }
-        .chat-input { 
-            display: flex; 
-            padding: 20px; 
-            background: white; 
-            border-top: 1px solid #e9ecef; 
-        }
-        .message-input { 
-            flex: 1; 
-            padding: 15px 20px; 
-            border: 2px solid #e9ecef; 
-            border-radius: 25px; 
-            outline: none; 
-            font-size: 16px;
-            transition: border-color 0.3s ease;
-        }
-        .message-input:focus { border-color: #007bff; }
-        .btn-send { 
-            background: linear-gradient(135deg, #007bff, #0056b3); 
-            border: none; 
-            color: white; 
-            padding: 15px 25px; 
-            border-radius: 25px; 
-            margin-left: 10px; 
-            cursor: pointer; 
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-        .btn-send:hover { transform: translateY(-1px); box-shadow: 0 5px 15px rgba(0,123,255,0.4); }
-        .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @media (max-width: 768px) { .chat-container { margin: 10px; width: 95%; } .chat-body { height: 400px; } }
-    </style>
+    <title>Entech Chat</title>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h2>🛠️ Entech AI Консультант</h2>
-            <p>Помогу подобрать идеальное освещение для вашего проекта!</p>
-        </div>
-        
-        <div class="chat-body" id="chatBody">
-            <div class="message bot-message">
-                <strong>Привет! 👋</strong><br>
-                Я AI-консультант Entech. Готов помочь с подбором освещения для вашего проекта.<br><br>
-                <em>Выберите один из вариантов:</em>
-            </div>
-            
-            <div class="quick-replies">
-                <div class="quick-reply" onclick="sendQuickReply('Хочу начать квиз')">🎯 Квиз начать</div>
-                <div class="quick-reply" onclick="sendQuickReply('Нужна помощь с офисным освещением')">💼 Офис</div>
-                <div class="quick-reply" onclick="sendQuickReply('Освещение для улицы IP65')">🏙️ Улица</div>
-                <div class="quick-reply" onclick="sendQuickReply('Сколько стоит LED лента 100м')">💰 Цены</div>
-            </div>
-        </div>
-        
-        <div class="chat-input">
-            <input type="text" class="message-input" id="messageInput" placeholder="Введите ваше сообщение..." onkeypress="handleKeyPress(event)">
-            <button class="btn-send" onclick="sendMessage()">Отправить</button>
-        </div>
-    </div>
+    <h1>Entech AI Консультант</h1>
+    <p>Привет! Готов помочь с освещением.</p>
+    
+    <button onclick="sendMessage('Квиз начать')">🎯 Квиз начать</button>
+    <button onclick="sendMessage('Офис')">💼 Офис</button>
+    <button onclick="sendMessage('Улица')">🏙️ Улица</button>
+    <button onclick="sendMessage('Цены')">💰 Цены</button>
+    
+    <br><br>
+    <input type="text" id="message" placeholder="Введите сообщение">
+    <button onclick="sendMessage()">Отправить</button>
+    
+    <div id="chat"></div>
 
     <script>
-        const API_URL = '/api/chat'; // Относительный путь для Render
+        const API_URL = '/api/chat';
         
-        async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
+        async function sendMessage(text = null) {
+            const input = document.getElementById('message');
+            const message = text || input.value;
             if (!message) return;
             
-            // Отключаем кнопку
-            const btn = document.querySelector('.btn-send');
-            btn.disabled = true;
-            btn.textContent = 'Отправка...';
+            if (!text) input.value = '';
             
-            // Показать сообщение пользователя
-            addMessage('user', message);
-            input.value = '';
+            const chat = document.getElementById('chat');
+            chat.innerHTML += `<p><strong>Вы:</strong> ${message}</p>`;
             
             try {
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ message: message })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: message})
                 });
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    addMessage('bot', data.assistant || 'Извините, не понял запрос.');
-                } else {
-                    addMessage('bot', '❌ Ошибка сервера. Попробуйте позже.');
-                    console.error('Server error:', response.status, response.statusText);
-                }
+                const data = await response.json();
+                chat.innerHTML += `<p><strong>AI:</strong> ${data.assistant}</p>`;
+                
             } catch (error) {
-                addMessage('bot', '❌ Ошибка сети. Проверьте подключение.');
-                console.error('Network error:', error);
-            } finally {
-                // Включаем кнопку
-                btn.disabled = false;
-                btn.textContent = 'Отправить';
-            }
-        }
-        
-        function sendQuickReply(text) {
-            document.getElementById('messageInput').value = text;
-            sendMessage();
-        }
-        
-        function addMessage(sender, text) {
-            const chatBody = document.getElementById('chatBody');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
-            
-            if (sender === 'user') {
-                messageDiv.innerHTML = `<strong>Вы:</strong> ${text}`;
-            } else {
-                messageDiv.innerHTML = `<strong>Entech AI:</strong><br>${text.replace(/\n/g, '<br>')}`;
+                chat.innerHTML += `<p><strong>Ошибка:</strong> ${error.message}</p>`;
             }
             
-            chatBody.appendChild(messageDiv);
-            chatBody.scrollTop = chatBody.scrollHeight;
-            
-            // Удаляем quick replies после первого сообщения
-            if (sender === 'user' && document.querySelector('.quick-replies')) {
-                document.querySelector('.quick-replies').style.display = 'none';
-            }
+            chat.scrollTop = chat.scrollHeight;
         }
-        
-        function handleKeyPress(event) {
-            if (event.key === '
+    </script>
+</body>
+</html>
