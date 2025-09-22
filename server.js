@@ -12,8 +12,19 @@ import OpenAI from "openai";
 dotenv.config();
 
 const app = express();
-app.use(helmet());
+
+// Helmet БЕЗ CSP (чтобы не блокировать inline стили)
+app.use(helmet({
+  contentSecurityPolicy: false,  // Отключаем CSP
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false
+}));
+
 app.use(express.json({ limit: '10kb' }));
+
+// Trust proxy для Render (фикс rate limit ошибки)
+app.set('trust proxy', true);
 
 // Logging
 const logger = winston.createLogger({
@@ -26,23 +37,15 @@ const logger = winston.createLogger({
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use(limiter);
 
-// CORS + CSP middleware (в самом начале, ДО всех роутов)
+// CORS + Custom headers
 app.use((req, res, next) => {
   // CORS headers
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // CSP headers (разрешаем inline стили, скрипты и всё необходимое)
-  res.setHeader('Content-Security-Policy', 
-    "default-src 'self' 'unsafe-inline' 'unsafe-eval' *;" +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' *;" +
-    "style-src 'self' 'unsafe-inline' *;" +
-    "img-src * data:;" +
-    "font-src *;" +
-    "connect-src *;" +
-    "frame-src *;"
-  );
+  // Custom headers для чата (если нужно)
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   
   // Обработка preflight OPTIONS
   if (req.method === 'OPTIONS') {
