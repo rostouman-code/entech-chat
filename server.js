@@ -6,15 +6,19 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import NodeCache from "node-cache";
 import winston from "winston";
-import { readFileSync } from "fs";
+import { readFileSync, dirname } from "fs";
+import { fileURLToPath } from "url";
+import path from "path";
 import OpenAI from "openai";
 
 dotenv.config();
 
 const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);  // ← ФИКС: ES modules __dirname
 
-// Trust proxy ПЕРВЫМ! (фикс для Render X-Forwarded-For)
-app.set('trust proxy', 1);  // ← Изменено на 1 (Render single proxy)
+// Trust proxy ПЕРВЫМ!
+app.set('trust proxy', 1);
 
 // Logging
 const logger = winston.createLogger({
@@ -23,17 +27,18 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console(), new winston.transports.File({ filename: 'error.log' })]
 });
 
-// Helmet с ЯВНЫМ CSP (разрешаем unsafe-inline для твоего inline CSS/JS)
+// Helmet с ЯВНЫМ CSP (максимально разрешительный)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'", "*"],  // ← Разрешаем всё для теста
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],  // ← Для Vanilla JS
-      styleSrc: ["'self'", "'unsafe-inline'"],  // ← Для градиентов и inline CSS
-      connectSrc: ["'self'", "https://api.openai.com", "https://*.tilda.ws"],  // ← OpenAI + Tilda
-      imgSrc: ["'self'", "data:", "https:"],  // ← Фото товаров
-      fontSrc: ["'self'", "data:", "https:"],
-      frameAncestors: ["'self'", "https://*.tilda.ws"]  // ← Для embed в Tilda
+      defaultSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],  // ← ВСЁ разрешено
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],  // ← Vanilla JS + eval
+      styleSrc: ["'self'", "'unsafe-inline'", "*"],  // ← Градиенты, inline CSS
+      connectSrc: ["'self'", "https://api.openai.com", "https://*.tilda.ws", "https://*.onrender.com", "*"],  // ← Все API
+      imgSrc: ["'self'", "data:", "https:", "*"],  // ← Фото товаров
+      fontSrc: ["'self'", "data:", "https:", "*"],
+      frameAncestors: ["'self'", "https://*.tilda.ws", "*"],  // ← Tilda embed
+      objectSrc: ["'none'"]
     }
   },
   crossOriginEmbedderPolicy: false,
@@ -43,13 +48,16 @@ app.use(helmet({
 
 app.use(express.json({ limit: '10kb' }));
 
-// Rate limit ТОЛЬКО на API (с keyGenerator по IP)
+// Rate limit ТОЛЬКО на API
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  keyGenerator: (req) => req.ip  // ← Явно использует X-Forwarded-For
+  keyGenerator: (req) => req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true  // ← Не считать failed requests в лимит
 });
-app.use('/api/', limiter);  // ← Только на /api/ (не на static)
+app.use('/api/', limiter);
 
 // CORS с explicit origins
 app.use(cors({
@@ -59,18 +67,32 @@ app.use(cors({
   credentials: true
 }));
 
-// Custom middleware для логирования headers (дебаг)
+// Static files (сервируем index.html напрямую)
+app.use(express.static(__dirname));  // ← Весь проект как static
+
+// Custom middleware для логирования и CSP override (если нужно)
 app.use((req, res, next) => {
-  logger.info(`Request headers: ${JSON.stringify(req.headers)}`);
+  // Логируем запросы
+  logger.info(`${req.method} ${req.url} from ${req.ip}`);
+  
+  // Явно переопределяем CSP headers (если Helmet не справляется)
+  res.setHeader('Content-Security-Policy', 
+    "default-src * 'unsafe-inline' 'unsafe-eval'; " +
+    "script-src * 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src * 'unsafe-inline'; " +
+    "connect-src *; " +
+    "img-src * data:; " +
+    "font-src * data:;"
+  );
+  
   next();
 });
-
-// Static files (если есть public folder)
-app.use(express.static('public'));
 
 // Load catalog & scenario
 let catalog = [];
 let scenario = {};
+const cache = new NodeCache({ stdTTL: 300 });
+
 try {
   catalog = JSON.parse(readFileSync("catalog.json", "utf8"));
   scenario = JSON.parse(readFileSync("scenario.json", "utf8"));
@@ -81,7 +103,7 @@ try {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Улучшенный поиск (с ключевыми словами) — без изменений
+// Улучшенный поиск (без изменений)
 function findProducts(query) {
   const cacheKey = `search:${query}`;
   let products = cache.get(cacheKey);
@@ -89,7 +111,6 @@ function findProducts(query) {
 
   const q = query.toLowerCase();
   
-  // Ключевые слова для поиска
   const keywords = {
     power: q.match(/(\d{2,3})\s*(Вт|W)/)?.[1] || null,
     ip: q.match(/ip(\d{2})/)?.[1] || null,
@@ -102,24 +123,19 @@ function findProducts(query) {
     .map(item => {
       let score = 0;
       
-      // Поиск по модели и названию
       if (item.model?.toLowerCase().includes(q)) score += 5;
       if (item.name?.toLowerCase().includes(q)) score += 3;
       
-      // Поиск по категории
       if (keywords.category && item.category?.toLowerCase().includes(keywords.category)) score += 4;
       
-      // Поиск по мощности
       if (keywords.power && item.power_w) {
         const powerDiff = Math.abs(item.power_w - parseInt(keywords.power));
         if (powerDiff <= 50) score += 3;
         else if (powerDiff <= 100) score += 2;
       }
       
-      // Поиск по IP
       if (keywords.ip && item.ip_rating?.toLowerCase() === `ip${keywords.ip}`) score += 4;
       
-      // Общий поиск по тексту
       if (item.raw?.toLowerCase().includes(q)) score += 2;
       
       return { ...item, score };
@@ -132,7 +148,7 @@ function findProducts(query) {
   return products;
 }
 
-// Save quote — без изменений
+// API Routes
 app.post("/api/quote", async (req, res) => {
   try {
     const { name, contact, products } = req.body;
@@ -163,14 +179,12 @@ app.post("/api/chat", async (req, res) => {
 
     logger.info(`Chat: ${message.slice(0, 50)}`);
     
-    // Улучшенный поиск
     const products = findProducts(message);
     const productText = products.length ? 
       `\n\n**Рекомендации из каталога Entech:**\n${products.map((p, i) => 
         `${i+1}. **${p.model}** (${p.power_w}Вт, ${p.lumens ? p.lumens + 'лм' : 'не указан'}, ${p.ip_rating || 'IP не указан'}) — ${p.category}\n`
       ).join('')}` : '';
 
-    // Улучшенный системный промпт — без изменений
     const sysPrompt = `
 Ты — AI-консультант Entech по светотехнике. Твоя цель: помочь клиенту подобрать освещение и получить заявку на коммерческое предложение.
 
@@ -199,24 +213,4 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
         { role: "system", content: sysPrompt },
         { role: "user", content: message }
       ],
-      temperature: 0.3,
-      max_tokens: 400
-    });
-
-    res.json({ 
-      assistant: completion.choices[0].message.content, 
-      products 
-    });
-  } catch (err) {
-    logger.error(`Chat error: ${err.message}`);
-    res.status(500).json({ error: "AI error" });
-  }
-});
-
-// Root route для index.html (если нужно)
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => logger.info(`Server on :${PORT}`));
+      temperature: 0
