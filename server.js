@@ -15,7 +15,7 @@ dotenv.config();
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);  // ← ФИКС: ES modules __dirname
+const __dirname = dirname(__filename);
 
 // Trust proxy ПЕРВЫМ!
 app.set('trust proxy', 1);
@@ -27,17 +27,17 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console(), new winston.transports.File({ filename: 'error.log' })]
 });
 
-// Helmet с ЯВНЫМ CSP (максимально разрешительный)
+// Helmet с ЯВНЫМ CSP
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],  // ← ВСЁ разрешено
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],  // ← Vanilla JS + eval
-      styleSrc: ["'self'", "'unsafe-inline'", "*"],  // ← Градиенты, inline CSS
-      connectSrc: ["'self'", "https://api.openai.com", "https://*.tilda.ws", "https://*.onrender.com", "*"],  // ← Все API
-      imgSrc: ["'self'", "data:", "https:", "*"],  // ← Фото товаров
+      defaultSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "*"],
+      styleSrc: ["'self'", "'unsafe-inline'", "*"],
+      connectSrc: ["'self'", "https://api.openai.com", "https://*.tilda.ws", "https://*.onrender.com", "*"],
+      imgSrc: ["'self'", "data:", "https:", "*"],
       fontSrc: ["'self'", "data:", "https:", "*"],
-      frameAncestors: ["'self'", "https://*.tilda.ws", "*"],  // ← Tilda embed
+      frameAncestors: ["'self'", "https://*.tilda.ws", "*"],
       objectSrc: ["'none'"]
     }
   },
@@ -55,11 +55,11 @@ const limiter = rateLimit({
   keyGenerator: (req) => req.ip,
   standardHeaders: true,
   legacyHeaders: false,
-  skipFailedRequests: true  // ← Не считать failed requests в лимит
+  skipFailedRequests: true
 });
 app.use('/api/', limiter);
 
-// CORS с explicit origins
+// CORS
 app.use(cors({
   origin: ['*', 'https://entech-chat.onrender.com', 'https://*.tilda.ws', 'http://localhost:3000'],
   methods: 'GET,POST,PUT,DELETE,OPTIONS',
@@ -67,15 +67,14 @@ app.use(cors({
   credentials: true
 }));
 
-// Static files (сервируем index.html напрямую)
-app.use(express.static(__dirname));  // ← Весь проект как static
+// Static files
+app.use(express.static(__dirname));
 
-// Custom middleware для логирования и CSP override (если нужно)
+// Custom middleware для CSP override
 app.use((req, res, next) => {
-  // Логируем запросы
   logger.info(`${req.method} ${req.url} from ${req.ip}`);
   
-  // Явно переопределяем CSP headers (если Helmet не справляется)
+  // CSP override
   res.setHeader('Content-Security-Policy', 
     "default-src * 'unsafe-inline' 'unsafe-eval'; " +
     "script-src * 'unsafe-inline' 'unsafe-eval'; " +
@@ -103,7 +102,7 @@ try {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Улучшенный поиск (без изменений)
+// Функция поиска
 function findProducts(query) {
   const cacheKey = `search:${query}`;
   let products = cache.get(cacheKey);
@@ -213,4 +212,29 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
         { role: "system", content: sysPrompt },
         { role: "user", content: message }
       ],
-      temperature: 0
+      temperature: 0.3,  // ← ФИКС: запятая добавлена
+      max_tokens: 400    // ← ФИКС: запятая добавлена
+    });  // ← ФИКС: закрывающая скобка
+
+    res.json({ 
+      assistant: completion.choices[0].message.content, 
+      products 
+    });
+  } catch (err) {
+    logger.error(`Chat error: ${err.message}`);
+    res.status(500).json({ error: "AI error" });
+  }
+});
+
+// Root route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => logger.info(`Server on :${PORT}`));
