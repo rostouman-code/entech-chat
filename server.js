@@ -13,18 +13,8 @@ dotenv.config();
 
 const app = express();
 
-// Helmet БЕЗ CSP (чтобы не блокировать inline стили)
-app.use(helmet({
-  contentSecurityPolicy: false,  // Отключаем CSP
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false,
-  crossOriginResourcePolicy: false
-}));
-
-app.use(express.json({ limit: '10kb' }));
-
-// Trust proxy для Render (фикс rate limit ошибки)
-app.set('trust proxy', true);
+// Trust proxy ПЕРВЫМ! (фикс для Render X-Forwarded-For)
+app.set('trust proxy', 1);  // ← Изменено на 1 (Render single proxy)
 
 // Logging
 const logger = winston.createLogger({
@@ -33,30 +23,50 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console(), new winston.transports.File({ filename: 'error.log' })]
 });
 
-// Rate limit
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
-app.use(limiter);
+// Helmet с ЯВНЫМ CSP (разрешаем unsafe-inline для твоего inline CSS/JS)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'", "*"],  // ← Разрешаем всё для теста
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],  // ← Для Vanilla JS
+      styleSrc: ["'self'", "'unsafe-inline'"],  // ← Для градиентов и inline CSS
+      connectSrc: ["'self'", "https://api.openai.com", "https://*.tilda.ws"],  // ← OpenAI + Tilda
+      imgSrc: ["'self'", "data:", "https:"],  // ← Фото товаров
+      fontSrc: ["'self'", "data:", "https:"],
+      frameAncestors: ["'self'", "https://*.tilda.ws"]  // ← Для embed в Tilda
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false
+}));
 
-// CORS + Custom headers
+app.use(express.json({ limit: '10kb' }));
+
+// Rate limit ТОЛЬКО на API (с keyGenerator по IP)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  keyGenerator: (req) => req.ip  // ← Явно использует X-Forwarded-For
+});
+app.use('/api/', limiter);  // ← Только на /api/ (не на static)
+
+// CORS с explicit origins
+app.use(cors({
+  origin: ['*', 'https://entech-chat.onrender.com', 'https://*.tilda.ws', 'http://localhost:3000'],
+  methods: 'GET,POST,PUT,DELETE,OPTIONS',
+  allowedHeaders: 'Content-Type, Authorization',
+  credentials: true
+}));
+
+// Custom middleware для логирования headers (дебаг)
 app.use((req, res, next) => {
-  // CORS headers
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  // Custom headers для чата (если нужно)
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  
-  // Обработка preflight OPTIONS
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
+  logger.info(`Request headers: ${JSON.stringify(req.headers)}`);
+  next();
 });
 
-const PORT = process.env.PORT || 3000;
-const cache = new NodeCache({ stdTTL: 300 });
+// Static files (если есть public folder)
+app.use(express.static('public'));
 
 // Load catalog & scenario
 let catalog = [];
@@ -71,7 +81,7 @@ try {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Улучшенный поиск (с ключевыми словами)
+// Улучшенный поиск (с ключевыми словами) — без изменений
 function findProducts(query) {
   const cacheKey = `search:${query}`;
   let products = cache.get(cacheKey);
@@ -122,7 +132,7 @@ function findProducts(query) {
   return products;
 }
 
-// Save quote
+// Save quote — без изменений
 app.post("/api/quote", async (req, res) => {
   try {
     const { name, contact, products } = req.body;
@@ -160,7 +170,7 @@ app.post("/api/chat", async (req, res) => {
         `${i+1}. **${p.model}** (${p.power_w}Вт, ${p.lumens ? p.lumens + 'лм' : 'не указан'}, ${p.ip_rating || 'IP не указан'}) — ${p.category}\n`
       ).join('')}` : '';
 
-    // Улучшенный системный промпт
+    // Улучшенный системный промпт — без изменений
     const sysPrompt = `
 Ты — AI-консультант Entech по светотехнике. Твоя цель: помочь клиенту подобрать освещение и получить заявку на коммерческое предложение.
 
@@ -203,4 +213,10 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
   }
 });
 
+// Root route для index.html (если нужно)
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => logger.info(`Server on :${PORT}`));
