@@ -150,8 +150,14 @@ function calculateQuantity(area, targetLux, lumens, utilization = 0.6) {
   return Math.max(1, quantity);
 }
 
-// Улучшенный поиск товаров с фильтрацией по категории
+// ✅ ИСПРАВЛЕНО: Улучшенный поиск товаров с фильтрацией по категории и проверкой query
 function findProducts(query, category = null) {
+  // Проверка на undefined или null
+  if (!query) {
+    logger.warn('findProducts called with empty query.');
+    return [];
+  }
+  
   const cacheKey = `search:${query.toLowerCase()}:${category || 'all'}`;
   let products = cache.get(cacheKey);
   
@@ -336,14 +342,20 @@ async function sendToTelegram(message) {
 }
 
 
-// API: AI чат с state machine + улучшенным диалогом + ФИКС "Ваш вариант"
+// ✅ ИСПРАВЛЕНО: API чата использует sessionId
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, sessionId } = req.body;
     
     if (!message || typeof message !== 'string' || message.trim().length < 1) {
       return res.status(400).json({ 
         error: "Сообщение не может быть пустым" 
+      });
+    }
+    
+    if (!sessionId) {
+      return res.status(400).json({
+        error: "sessionId не предоставлен. Перезагрузите страницу."
       });
     }
 
@@ -353,9 +365,9 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const ip = req.ip || 'unknown';
-    const historyCacheKey = `chat_history:${ip}`;
-    const sessionCacheKey = `chat_session:${ip}`;
+    // ✅ ИСПРАВЛЕНО: Используем sessionId вместо IP
+    const historyCacheKey = `chat_history:${sessionId}`;
+    const sessionCacheKey = `chat_session:${sessionId}`;
     
     let history = cache.get(historyCacheKey) || [];
     let session = cache.get(sessionCacheKey) || { 
@@ -370,7 +382,7 @@ app.post("/api/chat", async (req, res) => {
     if (history.length > 5) history = history.slice(-5);
     cache.set(historyCacheKey, history, 600);
 
-    logger.info(`Chat: "${message.slice(0, 50)}..." from ${ip} (step: ${session.step})`);
+    logger.info(`Chat: "${message.slice(0, 50)}..." from ${sessionId} (step: ${session.step})`);
 
     // Определяем шаг диалога
     const messageLower = message.toLowerCase().trim();
@@ -392,19 +404,19 @@ app.post("/api/chat", async (req, res) => {
 
     // ✅ ФИКС: Поддержка "ваш вариант" и нестандартных объектов
     if (session.step === 'greeting' && (
-      messageLower.includes('ваш вариант') ||
-      messageLower.includes('ваш вариант') ||
-      messageLower.includes('стадион') ||
-      messageLower.includes('парк') ||
-      messageLower.includes('спорт') ||
-      messageLower.includes('площадь') ||
-      messageLower.includes('объект') ||
-      messageLower.includes('проект') ||
-      messageLower.includes('custom')
+        messageLower.includes('ваш вариант') || 
+        messageLower.includes('ваш вариант') ||
+        messageLower.includes('стадион') || 
+        messageLower.includes('парк') || 
+        messageLower.includes('спорт') || 
+        messageLower.includes('площадь') ||
+        messageLower.includes('объект') || 
+        messageLower.includes('проект') ||
+        messageLower.includes('custom')
     )) {
-      session.context.type = 'custom';
-      session.step = 'custom_questions';
-      logger.info(`Custom object detected: ${messageLower}`);
+        session.context.type = 'custom';
+        session.step = 'custom_questions';
+        logger.info(`Custom object detected: ${messageLower}`);
     }
 
     // Проверяем, есть ли достаточно параметров для рекомендации
@@ -417,164 +429,182 @@ app.post("/api/chat", async (req, res) => {
     if (messageLower.includes('пример') || messageLower.includes('покажи')) {
       session.context = {
         ...session.context,
-        area: session.context.type === 'office' ? '20' : session.context.type === 'workshop' ? '100' : session.context.type === 'warehouse' ? '200' : session.context.type === 'custom' ? '1000' : '50',
-        height: session.context.type === 'office' ? '3' : session.context.type === 'workshop' ? '6' : session.context.type === 'warehouse' ? '8' : session.context.type === 'custom' ? '10' : '4',
-        lux: session.context.type === 'office' ? '400' : session.context.type === 'workshop' ? '200' : session.context.type === 'warehouse' ? '150' : session.context.type === 'custom' ? '200' : '200'
+        area: session.context.type === 'office' ? '20' : 
+              session.context.type === 'workshop' ? '100' : 
+              session.context.type === 'warehouse' ? '200' :
+              session.context.type === 'custom' ? '1000' :
+              '50',
+        height: session.context.type === 'office' ? '3' : 
+                session.context.type === 'workshop' ? '6' : 
+                session.context.type === 'warehouse' ? '8' :
+                session.context.type === 'custom' ? '10' :
+                '4',
+        lux: session.context.type === 'office' ? '400' : 
+             session.context.type === 'workshop' ? '300' : 
+             session.context.type === 'warehouse' ? '150' :
+             session.context.type === 'custom' ? '200' :
+             '10'
       };
       session.step = `${session.context.type}_recommendation`;
-      logger.info('User requested example, providing dummy data');
-    }
-    
-    // Переходим к следующему шагу (спросить параметры)
-    const currentScenario = scenario.followup_questions || [];
-    const currentQuestion = currentScenario[session.questions_asked] || null;
-    
-    if (session.step.includes('_questions') && currentQuestion) {
-      session.questions_asked++;
-      cache.set(sessionCacheKey, session, 600);
-      return res.json({ 
-        message: currentQuestion,
-        buttons: (session.context.type === 'custom') ? [''] : [''],
-        type: 'bot'
-      });
     }
 
-    let responseMessage;
-    let products = [];
-    let leadContext = {};
-    let quickReplies = [];
+    // Парсим параметры из сообщения
+    const areaMatch = message.match(/(\d{1,3})\s*(м²|кв|площадь)/i);
+    const heightMatch = message.match(/высота\s+(\d{1,2})\s*м/i);
+    const luxMatch = message.match(/(\d{2,3})\s*лк/i);
     
-    // Если есть параметры, находим продукты и делаем расчет
-    if (session.step.includes('_recommendation')) {
-      products = findProducts(session.context.type);
-      
-      let lumens = 0;
-      let quantity = 0;
-      
-      if (products.length > 0) {
-        lumens = calculateLumens(products[0].power_w, products[0].lumens);
-        quantity = calculateQuantity(parseInt(session.context.area), parseInt(session.context.lux), lumens);
-      }
-      
-      const recommendationTemplate = scenario.recommendation_template || {};
-      const intro = recommendationTemplate.intro || 'Для ваших задач я нашёл несколько вариантов.';
-      const note = recommendationTemplate.note || '';
-      const cta = recommendationTemplate.cta || '';
-      
-      // Отправляем расчет и найденные продукты
-      responseMessage = `${intro}\n\n`
-        + `**Тип объекта:** ${session.context.type}\n`
-        + `**Площадь:** ${session.context.area} м²\n`
-        + `**Высота:** ${session.context.height} м\n`
-        + `**Норма освещенности:** ${session.context.lux} лк\n\n`
-        + `***Расчёт:***\n`
-        + `Для достижения нормы понадобится **~${quantity}** светильников.\n\n`
-        + `Наши специалисты готовы сделать более точный светотехнический расчет и подобрать оптимальные решения.\n\n`
-        + `*${note}*\n\n`
-        + `**${cta}**`;
-        
-      leadContext = {
-        type: session.context.type,
-        area: session.context.area,
-        height: session.context.height,
-        lux: session.context.lux,
-        quantity: quantity
-      };
-      
-      quickReplies = [
-        { label: "✅ Запросить КП", payload: "Запросить коммерческое предложение" },
-        { label: "Подобрать другие", payload: "Подобрать другие светильники" }
-      ];
-      
-      session.step = 'recommendation_sent';
-    } else {
-      // ИИ должен отвечать, если это не предопределенный шаг
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini", //"gpt-3.5-turbo-16k",
-        messages: [
-          {
-            role: "system",
-            content: `Ты — дружелюбный AI-консультант компании Entech. 
-            Твоя задача — помочь клиенту подобрать светодиодные светильники для его объекта. 
-            Твоя основная функция — задавать вопросы, чтобы собрать информацию для подбора (тип помещения, площадь, высота, требования к освещенности).
-            Если у тебя недостаточно информации, всегда предлагай клиенту "Показать пример" или "Подобрать светильник", чтобы он мог продолжить диалог.
-            Если клиент просит подбор, попробуй задать уточняющие вопросы (площадь, высота и т.д.).
-            Если клиент спрашивает про каталог, всегда отправляй его на сайт, например: "Ознакомиться с каталогом можно на сайте: https://ene-rgy.ru/katalog".
-            Обязательно отвечай на русском языке.
-            Ты должен быть очень дружелюбным и терпеливым.
-            Если клиент спрашивает о цене, всегда говори, что цена зависит от объема заказа, и предложи запросить коммерческое предложение (КП). Например: "Точная цена зависит от объема и модели. Оставьте заявку на КП, и мы подготовим расчет с учетом всех скидок!".
-            `
-          },
-          ...history
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-        stream: false,
-      });
+    if (areaMatch) session.context.area = areaMatch[1];
+    if (heightMatch) session.context.height = heightMatch[1];
+    if (luxMatch) session.context.lux = luxMatch[1];
 
-      responseMessage = completion.choices[0].message.content;
-      session.phrase_index++;
+    // Ищем товары по категории
+    const products = findProducts(message, session.context.type);
+    const topProduct = products[0]; // Берем только ТОП-1
+    
+    let productText = topProduct ? 
+      `**ТОП МОДЕЛЬ:** ${topProduct.model} (${topProduct.power_w}Вт, ${topProduct.display_lumens}, ${topProduct.ip_rating}, ${topProduct.category})` : 
+      'Поиск по параметрам';
 
-      if (messageLower.includes('цена') || messageLower.includes('стоимость')) {
-          responseMessage = "Точная цена зависит от объема заказа и модели. Оставьте заявку на КП, и мы подготовим расчет с учетом всех скидок!";
-          quickReplies = [
-              { label: "✅ Запросить КП", payload: "Запросить коммерческое предложение" }
-          ];
-      }
-      
-      // Добавляем быстрые ответы, если это приветствие
-      if (session.step === 'greeting') {
-        quickReplies = scenario.welcome.quick_replies;
-      }
-      
-      if (messageLower.includes('каталог') || messageLower.includes('прайс')) {
-          responseMessage = "Ознакомиться с каталогом можно на сайте: https://ene-rgy.ru/katalog";
-      }
-
-      // Если бот сам спрашивает про параметры
-      const askQuestionKeywords = ['какая площадь', 'какая высота', 'сколько светильников'];
-      if (askQuestionKeywords.some(keyword => responseMessage.toLowerCase().includes(keyword))) {
-          quickReplies = [
-              { label: "Показать пример", payload: "Показать пример" },
-              { label: "Подобрать светильник", payload: "Подобрать светильник" }
-          ];
+    // ✅ ФИКС: Расширенный поиск для нестандартных объектов
+    if (session.context.type === 'custom') {
+      const customProducts = findProducts(message, 'all'); // Ищем по всему каталогу
+      const topCustomProduct = customProducts[0];
+      if (topCustomProduct) {
+        productText = `**УНИВЕРСАЛЬНОЕ РЕШЕНИЕ:** ${topCustomProduct.model} (${topCustomProduct.power_w}Вт, ${topCustomProduct.display_lumens}, ${topCustomProduct.ip_rating})`;
       }
     }
 
+    // Расчёт количества (если есть параметры)
+    let quantity = null;
+    if (topProduct && session.context.area && session.context.lux) {
+      const lumensNum = parseInt(topProduct.display_lumens.replace('лм', '')) || 0;
+      const areaNum = parseInt(session.context.area);
+      const luxNum = parseInt(session.context.lux);
+      quantity = calculateQuantity(areaNum, luxNum, lumensNum);
+    }
+
+    // Вариации фраз для рекомендаций
+    const phraseVariations = [
+      'рекомендую решение',
+      'предлагаю вариант', 
+      'подойдёт',
+      'оптимальное решение'
+    ];
+    const currentPhrase = phraseVariations[session.phrase_index % phraseVariations.length];
+    session.phrase_index++;
+
+    // ✅ ФИКС: Расширенный системный промпт с поддержкой custom объектов
+    const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. ЦЕЛЬ: собрать параметры → дать 1 персонализированное решение → получить лид.
+
+**СТРОГОЕ ПРАВИЛО: ТОЛЬКО 1 РЕКОМЕНДАЦИЯ! Никаких списков, номеров или блоков "Из каталога".**
+
+**ЛОГИКА ДИАЛОГА:**
+1. **greeting**: "Привет! Какое помещение? (офис/цех/улица/склад)"
+2. **office_questions**: Максимум 2 вопроса: площадь, высота. Коротко!
+3. **workshop_questions**: Тип работ, площадь. НЕ ПОВТОРЯЙ из истории!
+4. **street_questions**: Тип (дорога/парковка), длина. По нормам: дороги — 15лк
+5. **warehouse_questions**: Высота, стеллажи, площадь
+6. **custom_questions**: Тип объекта (стадион/парк), площадь, тип освещения
+7. **recommendation**: ТОЛЬКО когда есть параметры → 1 решение с расчётом
+8. **close**: CTA на PDF
+
+**КОНТЕКСТ ИЗ ИСТОРИИ:**
+${JSON.stringify(session.context)}
+
+**ТЕКУЩИЙ ШАГ:** ${session.step}
+
+**ПАРАМЕТРЫ ПО ТИПУ:**
+- ОФИС: area (м²), height (2-4м), lux (300-500)
+- ЦЕХ: area (м²), height (4-8м), lux (200-750), type (грубые/точные)
+- УЛИЦА: length/width (м), lux (5-20), type (дорога/парковка)
+- СКЛАД: area (м²), height (6-12м), lux (75-200), shelves (есть/нет)
+- **ВАШ ВАРИАНТ/custom**: тип объекта (стадион/парк/площадь), area (м²/м), lighting_type (функциональное/декоративное), lux (50-500)
+
+**ДОПОЛНИТЕЛЬНЫЕ ТИПЫ:**
+- **ВАШ ВАРИАНТ/custom**: стадион, парк, площадь, спорткомплекс, архитектурный объект
+  - Вопросы: тип объекта, площадь/длина, высота/тип освещения (функциональное/декоративное)
+  - Модели: универсальные (IP65+, 100-500Вт) или архитектурные из каталога
+  - Пример: "Для стадиона рекомендую прожекторы NRG-TOP с регулируемым углом"
+
+**РЕКОМЕНДАЦИИ — СТРОГО:**
+- ТОЛЬКО 1 модель: ${productText}
+- Расчёт: количество = (area × lux) / (lumens × 0.6)
+- ФОРМАТ: "Для [параметры] [фраза]: [модель] ([кол-во] шт.)"
+
+**ТЕКУЩАЯ ФРАЗА:** "${currentPhrase}"
+
+**ЗАПРОС:** ${message}
+
+**ФОРМАТ ОТВЕТА:**
+- custom_questions: "Расскажите о вашем объекте: тип (стадион/парк)? Площадь/длина? Тип освещения (функциональное/декоративное)?"
+- custom_recommendation: "Для [объект] [фраза]: [универсальная модель] ([кол-во] шт.) + CTA"
+- Всегда: Гарантия 5 лет, производство РФ
+
+Отвечай **коротко, профессионально, как эксперт**.`;
+
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: sysPrompt },
+        ...history.map(msg => ({ role: msg.role, content: msg.content }))
+      ],
+      temperature: 0.3,
+      max_tokens: 400
+    });
+
+    const assistantResponse = completion.choices[0].message.content;
+    history.push({ role: "assistant", content: assistantResponse });
+    
+    // Сохраняем состояние сессии
     cache.set(sessionCacheKey, session, 600);
-    
-    // Форматируем ответ
-    const response = {
-      message: responseMessage,
-      products,
-      lead_context: leadContext,
-      buttons: quickReplies,
-      type: 'bot'
-    };
+    cache.set(historyCacheKey, history, 600);
 
-    res.json(response);
+    logger.info(`AI response: ${assistantResponse.slice(0, 50)}... (${completion.usage?.total_tokens || 'N/A'} tokens)`);
     
+    res.json({ 
+      assistant: assistantResponse.trim(),
+      session: { step: session.step, context: session.context }, // Для debug
+      tokens: completion.usage || null
+    });
+
   } catch (err) {
-    logger.error(`Chat API error: ${err.message}`, { stack: err.stack });
-    res.status(500).json({ error: "Произошла ошибка, попробуйте позже." });
+    logger.error(`Chat API error: ${err.message}`);
+    
+    if (err.status === 401) {
+      res.status(503).json({ error: "AI сервис недоступен (проверьте API ключ)" });
+    } else if (err.status === 429) {
+      res.status(429).json({ error: "AI перегружен. Попробуйте через минуту." });
+    } else {
+      res.status(500).json({ 
+        error: "Временная ошибка AI. Попробуйте перефразировать вопрос." 
+      });
+    }
   }
 });
 
-// Роут для виджета
-app.get('/widget.js', (req, res) => {
-  try {
-    const widgetContent = readFileSync(path.join(__dirname, 'widget.js'), 'utf8');
-    res.setHeader('Content-Type', 'text/javascript');
-    res.send(widgetContent);
-  } catch (err) {
-    res.status(404).send('Not Found');
-  }
-});
-
-// Роут для главной страницы (index.html)
+// Root route: отдаём index.html
 app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  
   try {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    if (fs && fs.accessSync) {
+      fs.accessSync(indexPath);
+      res.sendFile(indexPath);
+    } else {
+      res.send(`
+        <!DOCTYPE html>
+        <html><head><title>Энтех AI</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h1>🤖 Энтех AI Консультант</h1>
+          <p>Загрузка чата...</p>
+          <script>
+            setTimeout(() => {
+              document.body.innerHTML += '<p><a href="/index.html">Открыть чат</a></p>';
+            }, 2000);
+          </script>
+        </body></html>
+      `);
+    }
   } catch (err) {
     logger.error(`Index.html not found: ${err.message}`);
     res.status(404).send('Chat interface not found. Contact administrator.');
@@ -611,6 +641,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
+
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 Энтех AI Chat Server started on port ${PORT}`);
+  logger.info(`📱 Available at: http://localhost:${PORT}`);
+  logger.info(`📦 Catalog: ${catalog.length} items loaded`);
+  logger.info(`🤖 OpenAI: ${openai ? 'Ready' : 'Not initialized'}`);
 });
