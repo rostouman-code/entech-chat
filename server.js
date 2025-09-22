@@ -6,16 +6,16 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import NodeCache from "node-cache";
 import winston from "winston";
-import { readFileSync, dirname } from "fs";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import path from "path";
+import { dirname } from "path";  // ← ФИКС: dirname из "path", НЕ из "fs"
 import OpenAI from "openai";
 
 dotenv.config();
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(__filename);  // ← Теперь работает
 
 // Trust proxy ПЕРВЫМ!
 app.set('trust proxy', 1);
@@ -212,9 +212,9 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
         { role: "system", content: sysPrompt },
         { role: "user", content: message }
       ],
-      temperature: 0.3,  // ← ФИКС: запятая добавлена
-      max_tokens: 400    // ← ФИКС: запятая добавлена
-    });  // ← ФИКС: закрывающая скобка
+      temperature: 0.3,
+      max_tokens: 400
+    });
 
     res.json({ 
       assistant: completion.choices[0].message.content, 
