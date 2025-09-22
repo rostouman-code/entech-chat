@@ -1,270 +1,143 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entech Chat Widget</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+        
+        :root {
+            --primary-color: #fced20;
+            --secondary-color: #1b1918;
+            --text-color: #000;
+            --background-color: #fff;
         }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
 
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: transparent;
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-end;
+            min-height: 100vh;
+        }
 
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
+        .chat-widget-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 99999;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Пропускаем события мыши, чтобы виджет не мешал взаимодействовать с контентом */
+            transition: all 0.3s ease;
+        }
 
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
+        .chat-iframe {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 380px;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            transform: scale(0.1);
+            opacity: 0;
+            transform-origin: bottom right;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            pointer-events: all; /* Включаем события мыши для чата */
+        }
+        
+        .chat-iframe.active {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        .chat-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background-color: var(--secondary-color);
+            border: none;
+            border-radius: 50%;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.2s ease, background-color 0.2s ease;
+            pointer-events: all; /* Включаем события мыши для кнопки */
+        }
+
+        .chat-button:hover {
+            transform: scale(1.05);
+        }
+
+        .chat-button svg {
+            width: 32px;
+            height: 32px;
+            fill: var(--primary-color);
+            transition: transform 0.3s ease, fill 0.2s ease;
+        }
+        
+        .chat-button.active svg.open-icon {
+            display: none;
+        }
+        
+        .chat-button.active svg.close-icon {
+            display: block;
+            transform: rotate(180deg);
+        }
+        
+        .chat-button svg.close-icon {
+            display: none;
+            fill: #fff;
+        }
+
+        /* Адаптивный дизайн */
+        @media (max-width: 480px) {
+            .chat-iframe {
+                width: 90%;
+                height: 80%;
+                bottom: 10px;
+                right: 5%;
+                left: 5%;
+                transform: scale(1);
+                opacity: 1;
             }
         }
-        return gk_fileData[filename] || "";
-        }
-        </script><link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-:root {
-  --brand: #0B6CB6; /* Основной синий ene-rgy.ru */
-  --accent: #00A88F; /* Зеленый акцент */
-  --bg: #FFFFFF;
-  --text: #222222;
-}
-#entech-widget {
-  position: fixed; bottom: 20px; right: 20px; width: 360px; max-width: 90vw; font-family: 'Inter', sans-serif; z-index: 99999;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.15); border-radius: 12px; overflow: hidden; background: var(--bg);
-  animation: fadeIn 0.3s ease-out;
-}
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 480px) { #entech-widget { width: 95vw; right: 2.5vw; } }
-#entech-widget .head {
-  background: linear-gradient(90deg, var(--brand), #0362A0); color: white; padding: 12px 14px; display: flex; align-items: center;
-}
-#entech-widget .head img { width: 28px; height: 28px; margin-right: 10px; border-radius: 4px; }
-#entech-widget .body { padding: 10px; max-height: 420px; overflow: auto; color: var(--text); }
-.quick-btn { background: #F3F7FB; border-radius: 8px; padding: 8px; margin: 6px 6px 0 0; display: inline-block; cursor: pointer; border: 1px solid #E6EEF9; transition: background 0.2s; }
-.quick-btn:hover { background: #E8F0FF; }
-.message { margin: 8px 0; padding: 8px 10px; border-radius: 8px; display: inline-block; max-width: 85%; animation: fadeIn 0.3s; }
-.msg-user { background: #E8F0FF; align-self: flex-end; font-weight: 600; }
-.msg-bot { background: #F4F4F6; }
-.typing { height: 18px; display: inline-block; vertical-align: middle; }
-.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #CCC; margin: 0 2px; animation: blink 1s infinite; }
-.dot:nth-child(2) { animation-delay: 0.2s; } .dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
-.product-card { border: 1px solid #ECECEC; padding: 8px; border-radius: 8px; display: flex; gap: 8px; margin: 8px 0; align-items: center; position: relative; }
-.product-card::after { content: 'В наличии'; position: absolute; top: -5px; right: 8px; background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
-.product-card img { width: 70px; height: 70px; object-fit: cover; border-radius: 6px; }
-.specs { font-size: 13px; color: #444; }
-.btn { background: var(--brand); color: white; padding: 8px 10px; border-radius: 8px; border: none; cursor: pointer; transition: background 0.2s; font-size: 12px; }
-.btn:hover { background: #085A9A; }
-.btn-accent { background: var(--accent); }
-.footer { padding: 8px; border-top: 1px solid #F0F0F0; background: #FAFAFA; display: flex; gap: 8px; align-items: center; }
-.small { font-size: 13px; color: #666; }
-.testimonial { background: #F0F8FF; padding: 8px; border-radius: 8px; margin: 8px 0; font-style: italic; font-size: 12px; }
-#quote-basket { background: #F9F9F9; padding: 8px; border-radius: 8px; margin: 8px 0; display: none; }
-</style>
+    </style>
+</head>
+<body>
 
-<div id="entech-widget" aria-live="polite">
-  <div class="head">
-    <img src="https://ene-rgy.ru/favicon.ico" alt="Entech logo" onerror="this.style.display='none'">
-    <div>
-      <div style="font-weight: 700;">Entech AI-консультант</div>
-      <div style="font-size: 12px; opacity: 0.9;">Подберёт светильники + расчёт (акция до 30.09)</div>
+    <div class="chat-widget-container" id="chat-widget-container">
+        <button class="chat-button" id="chat-button">
+            <svg class="open-icon" viewBox="0 0 24 24">
+                <path d="M20,2H4A2,2,0,0,0,2,4V22l4-4H20a2,2,0,0,0,2-2V4A2,2,0,0,0,20,2Z"/>
+            </svg>
+            <svg class="close-icon" viewBox="0 0 24 24">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+            </svg>
+        </button>
+        <iframe class="chat-iframe" id="chat-iframe" src="./index.html"></iframe>
     </div>
-  </div>
 
-  <div class="body" id="chat-body">
-    <div id="messages" style="display: flex; flex-direction: column;"></div>
-
-    <div id="quick" style="margin-top: 8px;"></div>
-
-    <div id="products"></div>
-    <div id="quote-basket">
-      <div>В корзине: <span id="basket-count">0</span> товаров</div>
-      <button class="btn btn-accent" onclick="requestQuote()" style="margin-top:4px;">Запросить расчёт</button>
-    </div>
-    <div id="testimonial" class="testimonial" style="display:none;">"С Entech сэкономили время на подборе освещения!" — Клиент, Москва</div>
-  </div>
-
-  <div class="footer">
-    <input id="user-input" type="text" placeholder="Напишите вопрос или используйте подсказки" style="flex:1; padding:8px; border-radius:8px; border:1px solid #E6E6E6;">
-    <button class="btn" onclick="sendMessage()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M2 21l20-9L2 3v7l14 2-14 2v7z" fill="white"/></svg>
-    </button>
-  </div>
-</div>
-
-<script>
-const API_BASE = 'http://localhost:3000'; // Замени на https://your-server.com
-const messagesEl = document.getElementById('messages');
-const productsEl = document.getElementById('products');
-const inputEl = document.getElementById('user-input');
-const basketEl = document.getElementById('quote-basket');
-const quickEl = document.getElementById('quick');
-const testimonialEl = document.getElementById('testimonial');
-
-let typingTimer, messageCount = 0, quoteBasket = JSON.parse(localStorage.getItem('entechBasket') || '[]');
-updateBasketUI();
-
-// Load quick replies from scenario.json
-fetch('scenario.json')
-  .then(r => r.json())
-  .then(sc => {
-    sc.welcome.quick_replies.forEach(reply => {
-      const btn = document.createElement('button');
-      btn.className = 'quick-btn';
-      btn.textContent = reply.label;
-      btn.onclick = () => sendMessage(reply.payload);
-      quickEl.appendChild(btn);
-    });
-    setTimeout(() => addMessage(sc.welcome.message), sc.welcome.delay_ms);
-  })
-  .catch(() => {
-    addMessage('Здравствуйте! Подберу светильники для вашего объекта. Что нужно осветить?');
-  });
-
-function debounce(fn, delay) {
-  let timer;
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
-}
-
-function addMessage(text, from = 'bot') {
-  const div = document.createElement('div');
-  div.className = `message ${from === 'user' ? 'msg-user' : 'msg-bot'}`;
-  div.textContent = text;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-  if (from === 'bot') messageCount++;
-  if (messageCount >= 3) showPopup();
-}
-
-function showTyping() {
-  hideTyping();
-  const div = document.createElement('div');
-  div.id = 'typing';
-  div.className = 'message msg-bot';
-  div.innerHTML = '<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span> Печатает...';
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-function hideTyping() {
-  const el = document.getElementById('typing');
-  if (el) el.remove();
-}
-
-async function sendMessage(text) {
-  const message = text || inputEl.value.trim();
-  if (!message) return;
-  addMessage(message, 'user');
-  inputEl.value = '';
-  showTyping();
-
-  try {
-    const resp = await fetch(`${API_BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    hideTyping();
-    if (data.assistant) {
-      addMessage(data.assistant, 'bot');
-      setTimeout(() => testimonialEl.style.display = 'block', 2000);
-    }
-    renderProducts(data.raw_matches || data.products || []);
-  } catch (e) {
-    hideTyping();
-    addMessage('Ошибка связи. Попробуйте позже или позвоните: +7 (495) 123-45-67', 'bot');
-    console.error(e);
-  }
-}
-
-function renderProducts(items) {
-  productsEl.innerHTML = '';
-  if (!items || items.length === 0) return;
-  items.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'product-card';
-    card.innerHTML = `
-      <img src="${p.image_url || p.url || 'https://via.placeholder.com/70?text=No+img'}" alt="${p.model}" onerror="this.src='https://via.placeholder.com/70?text=No+img'">
-      <div style="flex:1">
-        <div style="font-weight:700">${p.model || p.name || '—'}</div>
-        <div class="specs">
-          ${p.power_w ? `${p.power_w}Вт` : ''} ${p.lumens ? `• ${p.lumens}лм` : ''} ${p.ip_rating ? `• ${p.ip_rating}` : ''} ${p.warranty_years ? `• Гарантия ${p.warranty_years} лет` : ''}
-        </div>
-        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <button class="btn" onclick="addToQuote(${JSON.stringify({...p, price_rub: undefined})})">В корзину</button>
-          <a href="${p.url || '#'}" target="_blank" class="btn" style="background:#EEE; color:var(--text);">Заказать в 1 клик</a>
-        </div>
-      </div>
-    `;
-    productsEl.appendChild(card);
-  });
-
-  const cta = document.createElement('div');
-  cta.style.marginTop = '8px';
-  cta.innerHTML = `<button class="btn" onclick="requestQuote()" style="width:100%;">Запросить PDF-расчёт (цена по согласованию)</button>
-    <div class="small" style="text-align:center; margin-top:4px;">или <a href="tel:+74951234567" style="color:var(--brand);">позвонить +7(495)123-45-67</a></div>`;
-  productsEl.appendChild(cta);
-  basketEl.style.display = quoteBasket.length ? 'block' : 'none';
-}
-
-function addToQuote(item) {
-  delete item.price_rub; // Убираем цену
-  quoteBasket.push(item);
-  localStorage.setItem('entechBasket', JSON.stringify(quoteBasket));
-  updateBasketUI();
-  alert('Добавлено! В корзине: ' + quoteBasket.length + ' товаров');
-}
-
-function updateBasketUI() {
-  document.getElementById('basket-count').textContent = quoteBasket.length;
-  basketEl.style.display = quoteBasket.length ? 'block' : 'none';
-}
-
-async function requestQuote() {
-  if (quoteBasket.length === 0) return alert('Добавьте товары в корзину!');
-  const contact = prompt('Оставьте контакт (имя + телефон/email):');
-  if (!contact) return;
-  try {
-    const res = await fetch(`${API_BASE}/api/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact, items: quoteBasket, note: 'Запрос из виджета (цена по согласованию)' })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      alert('Запрос отправлен! Менеджер согласует цену и свяжется в течение часа.');
-      quoteBasket = []; localStorage.removeItem('entechBasket'); updateBasketUI();
-    } else alert('Ошибка отправки.');
-  } catch (e) { alert('Ошибка связи.'); console.error(e); }
-}
-
-function showPopup() {
-  if (confirm('Готов расчёт? Оставьте email для PDF + консультации менеджера.')) {
-    const email = prompt('Email:');
-    if (email) addToQuote({});
-  }
-}
-
-const debouncedSend = debounce(sendMessage, 300);
-inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') debouncedSend(); });
-</script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatButton = document.getElementById('chat-button');
+            const chatIframe = document.getElementById('chat-iframe');
+            
+            chatButton.addEventListener('click', function() {
+                chatIframe.classList.toggle('active');
+                chatButton.classList.toggle('active');
+            });
+        });
+    </script>
+</body>
+</html>
