@@ -26,9 +26,31 @@ const logger = winston.createLogger({
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use(limiter);
 
-// CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",");
-app.use(cors({ origin: allowedOrigins }));
+// CORS + CSP middleware (в самом начале, ДО всех роутов)
+app.use((req, res, next) => {
+  // CORS headers
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // CSP headers (разрешаем inline стили, скрипты и всё необходимое)
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self' 'unsafe-inline' 'unsafe-eval' *;" +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' *;" +
+    "style-src 'self' 'unsafe-inline' *;" +
+    "img-src * data:;" +
+    "font-src *;" +
+    "connect-src *;" +
+    "frame-src *;"
+  );
+  
+  // Обработка preflight OPTIONS
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 const cache = new NodeCache({ stdTTL: 300 });
@@ -89,23 +111,25 @@ function findProducts(query) {
       
       return { ...item, score };
     })
-    .filter(p => p.score > 0)
+    .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .slice(0, 3);
 
   cache.set(cacheKey, products);
   return products;
 }
 
+// Save quote
 app.post("/api/quote", async (req, res) => {
   try {
-    const { contact, items, note } = req.body;
-    if (!contact || !items || !Array.isArray(items)) {
-      return res.status(400).json({ error: "Invalid data" });
+    const { name, contact, products } = req.body;
+    if (!contact) {
+      return res.status(400).json({ error: "Contact required" });
     }
 
-    const entry = { id: Date.now(), contact, items, note, created: new Date().toISOString() };
-    const quotes = JSON.parse(await fs.readFile("quotes.json", "utf8").catch(() => "[]"));
+    const entry = { timestamp: new Date().toISOString(), name, contact, products };
+    
+    let quotes = JSON.parse(await fs.readFile("quotes.json", "utf8").catch(() => "[]"));
     quotes.push(entry);
     await fs.writeFile("quotes.json", JSON.stringify(quotes, null, 2));
 
