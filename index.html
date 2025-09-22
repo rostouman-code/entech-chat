@@ -1,52 +1,258 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Entech Chat</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Энтех AI Консультант</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            margin: 0; 
+            padding: 20px; 
+            min-height: 100vh;
+        }
+        .chat-container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+            overflow: hidden;
+        }
+        .chat-header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            padding: 20px; 
+            text-align: center;
+        }
+        #messages { 
+            height: 400px; 
+            overflow-y: auto; 
+            padding: 20px; 
+            background: #f8f9fa;
+        }
+        .message { 
+            margin: 10px 0; 
+            padding: 12px 16px; 
+            border-radius: 18px; 
+            max-width: 80%; 
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease-in;
+        }
+        .user { 
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+            color: white; 
+            margin-left: auto; 
+            text-align: right;
+        }
+        .assistant { 
+            background: white; 
+            border: 1px solid #e0e0e0; 
+            margin-right: auto;
+        }
+        #quick-replies { 
+            padding: 15px 20px; 
+            background: #f8f9fa; 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 10px;
+        }
+        .quick-reply { 
+            padding: 10px 15px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            border: none; 
+            border-radius: 25px; 
+            cursor: pointer; 
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .quick-reply:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .input-container { 
+            padding: 20px; 
+            background: white; 
+            display: flex; 
+            gap: 10px;
+        }
+        #message-input { 
+            flex: 1; 
+            padding: 12px 16px; 
+            border: 2px solid #e0e0e0; 
+            border-radius: 25px; 
+            outline: none;
+            font-size: 16px;
+        }
+        #message-input:focus { 
+            border-color: #667eea;
+        }
+        #send-btn { 
+            padding: 12px 24px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            border: none; 
+            border-radius: 25px; 
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        #send-btn:hover { 
+            transform: translateY(-2px);
+        }
+        #send-btn:disabled { 
+            opacity: 0.6; 
+            cursor: not-allowed;
+        }
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+        .loading { 
+            display: inline-block; 
+            width: 20px; 
+            height: 20px; 
+            border: 3px solid #f3f3f3; 
+            border-top: 3px solid #667eea; 
+            border-radius: 50%; 
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+    </style>
 </head>
 <body>
-    <h1>Entech AI Консультант</h1>
-    <p>Привет! Готов помочь с освещением.</p>
-    
-    <button onclick="sendMessage('Квиз начать')">🎯 Квиз начать</button>
-    <button onclick="sendMessage('Офис')">💼 Офис</button>
-    <button onclick="sendMessage('Улица')">🏙️ Улица</button>
-    <button onclick="sendMessage('Цены')">💰 Цены</button>
-    
-    <br><br>
-    <input type="text" id="message" placeholder="Введите сообщение">
-    <button onclick="sendMessage()">Отправить</button>
-    
-    <div id="chat"></div>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🤖 Энтех AI Консультант</h1>
+            <p>Помогу подобрать профессиональное освещение</p>
+        </div>
+        
+        <div id="messages"></div>
+        
+        <div id="quick-replies">
+            <button class="quick-reply" data-message="Ваш вариант">💬 Ваш вариант</button>
+            <button class="quick-reply" data-message="офис">💼 Офис</button>
+            <button class="quick-reply" data-message="улица">🏙️ Улица</button>
+            <button class="quick-reply" data-message="цех">🏭 Цех</button>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="message-input" placeholder="Напишите тип помещения или ваш вопрос...">
+            <button id="send-btn">Отправить</button>
+        </div>
+    </div>
 
     <script>
-        const API_URL = '/api/chat';
-        
-        async function sendMessage(text = null) {
-            const input = document.getElementById('message');
-            const message = text || input.value;
-            if (!message) return;
+        // CSP-safe: Весь JS в отдельном блоке, без inline handlers
+        document.addEventListener('DOMContentLoaded', function() {
+            const messagesDiv = document.getElementById('messages');
+            const input = document.getElementById('message-input');
+            const sendBtn = document.getElementById('send-btn');
+            const quickReplies = document.querySelectorAll('.quick-reply');
             
-            if (!text) input.value = '';
-            
-            const chat = document.getElementById('chat');
-            chat.innerHTML += `<p><strong>Вы:</strong> ${message}</p>`;
-            
-            try {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({message: message})
+            // Quick Reply handlers
+            quickReplies.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const message = this.getAttribute('data-message');
+                    if (message === 'Ваш вариант') {
+                        // Для "Ваш вариант" просто фокусируемся на input
+                        input.focus();
+                        input.placeholder = 'Напишите ваш вопрос или тип помещения...';
+                    } else {
+                        sendMessage(message);
+                    }
                 });
+            });
+            
+            // Send button handler
+            sendBtn.addEventListener('click', function() {
+                sendMessage();
+            });
+            
+            // Enter key handler
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            async function sendMessage(text = input.value.trim()) {
+                if (!text) return;
                 
-                const data = await response.json();
-                chat.innerHTML += `<p><strong>AI:</strong> ${data.assistant}</p>`;
+                // Disable input while sending
+                input.disabled = true;
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<div class="loading"></div>';
                 
-            } catch (error) {
-                chat.innerHTML += `<p><strong>Ошибка:</strong> ${error.message}</p>`;
+                // Show user message
+                addMessage(text, 'user');
+                input.value = '';
+                
+                try {
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: text })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        addMessage(data.assistant, 'assistant');
+                        
+                        // Show products if found (только 2 рекомендации)
+                        if (data.products && data.products.length > 0) {
+                            const productsMsg = `📦 Рекомендации из каталога Энтех (${data.products.length} шт.):`;
+                            addMessage(productsMsg, 'assistant');
+                            
+                            // Показываем только первые 2 товара
+                            data.products.slice(0, 2).forEach(product => {
+                                const productText = `• **${product.model}** (${product.power_w}Вт, ${product.display_lumens}, ${product.ip_rating || 'IP не указан'}, ${product.category})`;
+                                addMessage(productText, 'assistant');
+                            });
+                            
+                            addMessage('💡 Хотите коммерческое предложение в PDF? Укажите телефон или email!', 'assistant');
+                        }
+                    } else {
+                        const errorText = response.status === 429 ? '⏳ Слишком много запросов. Попробуйте через минуту.' : 
+                                        response.status === 500 ? '❌ Временная ошибка сервера. Попробуйте позже.' :
+                                        '❌ Неизвестная ошибка. Обновите страницу.';
+                        addMessage(errorText, 'assistant');
+                    }
+                } catch (error) {
+                    console.error('Chat error:', error);
+                    addMessage('❌ Ошибка соединения. Проверьте интернет и обновите страницу.', 'assistant');
+                } finally {
+                    // Re-enable input
+                    input.disabled = false;
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = 'Отправить';
+                    input.focus();
+                }
             }
             
-            chat.scrollTop = chat.scrollHeight;
-        }
+            function addMessage(text, sender) {
+                const div = document.createElement('div');
+                div.className = `message ${sender}`;
+                div.innerHTML = text
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // Bold markdown
+                    .replace(/\n/g, '<br>');  // Line breaks
+                messagesDiv.appendChild(div);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+                // Auto-scroll animation
+                messagesDiv.style.scrollBehavior = 'smooth';
+            }
+            
+            // Initial welcome message — ЕСТЕСТВЕННЫЙ ДИАЛОГ
+            setTimeout(() => {
+                addMessage('Привет! Я AI-консультант Энтех по профессиональному освещению. Напишите тип помещения (офис, цех, улица, склад) или ваш вопрос — подберу оптимальное решение!', 'assistant');
+            }, 500);
+        });
     </script>
 </body>
 </html>
