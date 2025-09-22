@@ -36,7 +36,7 @@ const logger = winston.createLogger({
 
 // Helmet с ОТКЛЮЧЕННЫМ CSP (только security headers)
 app.use(helmet({
-  contentSecurityPolicy: false,  // ← ПОЛНОЕ ОТКЛЮЧЕНИЕ CSP
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
@@ -77,15 +77,14 @@ app.use(express.static(__dirname));
 
 // Custom middleware: Логи + ПОЛНЫЙ CSP OVERRIDE
 app.use((req, res, next) => {
-  // Логируем запросы
   logger.info(`${req.method} ${req.url} from ${req.ip} - User-Agent: ${req.get('User-Agent')}`);
   
-  // ПОЛНОЕ УДАЛЕНИЕ CSP HEADERS (Render может добавлять свои)
+  // ПОЛНОЕ УДАЛЕНИЕ CSP HEADERS
   res.removeHeader('Content-Security-Policy');
   res.removeHeader('content-security-policy');
   res.removeHeader('X-Content-Security-Policy');
   
-  // МАКСИМАЛЬНО РАЗРЕШИТЕЛЬНЫЙ CSP (для inline JS/CSS)
+  // МАКСИМАЛЬНО РАЗРЕШИТЕЛЬНЫЙ CSP
   res.setHeader('Content-Security-Policy', 
     "default-src * 'unsafe-inline' 'unsafe-eval'; " +
     "script-src * 'unsafe-inline' 'unsafe-eval' blob: data:; " +
@@ -99,7 +98,6 @@ app.use((req, res, next) => {
     "worker-src * blob:;"
   );
   
-  // Другие security headers
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -110,7 +108,7 @@ app.use((req, res, next) => {
 // Load catalog & scenario
 let catalog = [];
 let scenario = {};
-const cache = new NodeCache({ stdTTL: 300 }); // 5 минут кэш
+const cache = new NodeCache({ stdTTL: 600 }); // 10 минут кэш
 
 try {
   if (fs && readFileSync) {
@@ -136,17 +134,24 @@ try {
   openai = null;
 }
 
-// Функция расчёта светового потока (fallback, если lumens не указан или низкий)
+// Функция расчёта светового потока (fallback)
 function calculateLumens(power_w, lumens) {
   if (!power_w || isNaN(power_w)) return null;
   const calculated = Math.round(power_w * 130); // 130 лм/Вт
-  // Если lumens низкий или null, используем расчёт
   return (lumens && lumens > power_w * 100) ? lumens : calculated;
 }
 
-// Улучшенный поиск товаров с fallback lumens
-function findProducts(query) {
-  const cacheKey = `search:${query.toLowerCase()}`;
+// Функция расчёта количества светильников
+function calculateQuantity(area, targetLux, lumens, utilization = 0.6) {
+  if (!area || !targetLux || !lumens) return null;
+  const totalLumensNeeded = area * targetLux / utilization;
+  const quantity = Math.ceil(totalLumensNeeded / lumens);
+  return Math.max(1, quantity);
+}
+
+// Улучшенный поиск товаров с фильтрацией по категории
+function findProducts(query, category = null) {
+  const cacheKey = `search:${query.toLowerCase()}:${category || 'all'}`;
   let products = cache.get(cacheKey);
   
   if (products !== undefined) {
@@ -158,16 +163,17 @@ function findProducts(query) {
   const keywords = {
     power: q.match(/(\d{1,3})\s*(Вт|W|ватт)/)?.[1] || null,
     ip: q.match(/ip(\d{2})/)?.[1] || null,
-    category: q.includes('склад') || q.includes('цех') || q.includes('производство') || q.includes('завод') ? 'промышленные' :
-              q.includes('улица') || q.includes('двор') || q.includes('парковка') || q.includes('внешнее') ? 'уличные' :
-              q.includes('офис') || q.includes('кабинет') || q.includes('контора') ? 'офисные' :
-              q.includes('магазин') || q.includes('торговый') || q.includes('retail') ? 'торговые' : null,
+    category: category || (
+      q.includes('склад') || q.includes('цех') || q.includes('производство') || q.includes('завод') ? 'промышленные' :
+      q.includes('улица') || q.includes('двор') || q.includes('парковка') || q.includes('внешнее') ? 'уличные' :
+      q.includes('офис') || q.includes('кабинет') || q.includes('контора') ? 'офисные' :
+      q.includes('магазин') || q.includes('торговый') || q.includes('retail') ? 'торговые' : null
+    ),
     area: q.match(/(\d{1,3})\s*(м²|кв\.м|площадь)/)?.[1] || null
   };
 
-  // Поиск по каталогу
   products = catalog
-    .filter(item => item.power_w && !isNaN(item.power_w) && item.ip_rating) // ФИКС: IP > 0
+    .filter(item => item.power_w && !isNaN(item.power_w) && item.ip_rating)
     .map(item => {
       let score = 0;
       const itemLower = {
@@ -178,7 +184,6 @@ function findProducts(query) {
       };
       
       if (itemLower.model.includes(q)) score += 5;
-      
       if (itemLower.name.includes(q)) score += 3;
       
       if (keywords.category && itemLower.category.includes(keywords.category)) score += 4;
@@ -191,7 +196,6 @@ function findProducts(query) {
       }
       
       if (keywords.ip && item.ip_rating?.toLowerCase() === `ip${keywords.ip}`) score += 4;
-      
       if (itemLower.raw.includes(q)) score += 2;
       
       if (q.includes('офис')) score += 1;
@@ -219,7 +223,7 @@ function findProducts(query) {
 // API: Сохранение заявки на КП
 app.post("/api/quote", async (req, res) => {
   try {
-    const { name, contact, products, message } = req.body;
+    const { name, contact, products, message, context } = req.body;
     
     if (!contact) {
       return res.status(400).json({ 
@@ -233,6 +237,7 @@ app.post("/api/quote", async (req, res) => {
       contact,
       products: products || [],
       message: message || '',
+      context: context || {}, // Сохраняем параметры для менеджера
       source: req.get('User-Agent') || 'Unknown'
     };
     
@@ -240,13 +245,12 @@ app.post("/api/quote", async (req, res) => {
       let quotes = JSON.parse(await fs.readFile("quotes.json", "utf8").catch(() => "[]"));
       quotes.push(entry);
       await fs.writeFile("quotes.json", JSON.stringify(quotes, null, 2));
-      logger.info(`Lead saved to file: ${contact}`);
+      logger.info(`Lead saved: ${contact} (${JSON.stringify(context)})`);
     } catch (fileErr) {
       logger.info('NEW LEAD:', JSON.stringify(entry, null, 2));
-      logger.error(`File write error (Render limitation?): ${fileErr.message}`);
+      logger.error(`File write error: ${fileErr.message}`);
     }
 
-    logger.info(`Lead captured: ${contact} (${products?.length || 0} products)`);
     res.json({ 
       ok: true, 
       message: "✅ Заявка принята! Менеджер свяжется с вами в течение часа.",
@@ -258,7 +262,7 @@ app.post("/api/quote", async (req, res) => {
   }
 });
 
-// API: AI чат с рекомендациями — ФИКС: HISTORY + УСЛОВНЫЕ ВОПРОСЫ
+// API: AI чат с state machine + улучшенным диалогом
 app.post("/api/chat", async (req, res) => {
   try {
     const { message } = req.body;
@@ -275,73 +279,168 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const ip = req.ip || 'unknown'; // Ключ для history (по IP)
+    const ip = req.ip || 'unknown';
     const historyCacheKey = `chat_history:${ip}`;
-    let history = cache.get(historyCacheKey) || []; // Получаем историю
-    history.push({ role: "user", content: message }); // Добавляем новый запрос
-    if (history.length > 5) history = history.slice(-5); // Храним последние 5
-    cache.set(historyCacheKey, history, 600); // 10 мин TTL
-
-    logger.info(`Chat request: "${message.slice(0, 50)}..." from ${ip}`);
-
-    // Ищем товары в каталоге (с fallback lumens)
-    const products = findProducts(message);
-    const topProducts = products.slice(0, 2);
+    const sessionCacheKey = `chat_session:${ip}`;
     
-    const productText = topProducts.length > 0 ? 
-      `\n\n**📦 РЕКОМЕНДАЦИИ ИЗ КАТАЛОГА ЭНТЕХ (ТОП-${topProducts.length}):**\n` +
-      topProducts.map((p, i) => 
-        `${i+1}. **${p.model || 'Модель не указана'}** ` +
-        `(${p.power_w || '?'}Вт, ${p.display_lumens}, ` +
-        `${p.ip_rating || 'IP не указан'}, ${p.category || 'Категория не указана'})`
-      ).join('\n') : '';
+    let history = cache.get(historyCacheKey) || [];
+    let session = cache.get(sessionCacheKey) || { 
+      step: 'greeting', 
+      context: {}, 
+      questions_asked: 0,
+      phrase_index: 0 
+    };
 
-    // Системный промпт — ФИКС: ВАРИАЦИИ CTA, УСЛОВНЫЕ ВОПРОСЫ, ФОТО
-    const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. 
-Твоя цель: помочь клиенту подобрать оптимальное освещение и получить заявку на коммерческое предложение.
+    // Обновляем историю
+    history.push({ role: "user", content: message });
+    if (history.length > 5) history = history.slice(-5);
+    cache.set(historyCacheKey, history, 600);
 
-**ПРАВИЛА:**
-1. **ВСЕГДА используй найденные товары** из каталога в рекомендациях. Для светового потока: если не указан, рассчитай по мощности (130 лм/Вт). Пример: 27Вт → 3510 лм.
-2. **Если клиент упоминает**: склад/цех → промышленные IP65 150-300Вт; офис → офисные IP20 30-60Вт; улица → уличные IP65+ 50-150Вт.
-3. **Задавай вопросы ТОЛЬКО если не хватает деталей** — максимум 1 уточнение, потом рекомендации. Учитывай историю диалога.
-4. **Цены НЕ называй** — "менеджер рассчитает индивидуально".
-5. **Всегда заканчивай CTA**: ВАРЬИРУЙ: "Хотите КП в PDF?" или "Нужно расчет освещенности?" (чередуй).
-6. **Если просят фото**: "Фото светильников на сайте Энтех или в КП от менеджера".
-7. **Помни контекст**: Учитывай предыдущие сообщения в диалоге (не повторяй вопросы).
+    logger.info(`Chat: "${message.slice(0, 50)}..." from ${ip} (step: ${session.step})`);
 
-**НАЙДЕННЫЕ ТОВАРЫ:**
-${productText || 'Каталог не нашёл подходящих — уточни параметры (тип помещения, высота, площадь).'}
+    // Определяем шаг диалога
+    const messageLower = message.toLowerCase().trim();
+    if (session.step === 'greeting') {
+      if (['офис', 'office'].includes(messageLower)) {
+        session.context.type = 'office';
+        session.step = 'office_questions';
+      } else if (['цех', 'workshop', 'цеховая'].includes(messageLower)) {
+        session.context.type = 'workshop';
+        session.step = 'workshop_questions';
+      } else if (['улица', 'street', 'уличный'].includes(messageLower)) {
+        session.context.type = 'street';
+        session.step = 'street_questions';
+      } else if (['склад', 'warehouse'].includes(messageLower)) {
+        session.context.type = 'warehouse';
+        session.step = 'warehouse_questions';
+      }
+    }
+
+    // Проверяем, есть ли достаточно параметров для рекомендации
+    const hasEnoughParams = session.context.area && session.context.height && session.context.lux;
+    if (hasEnoughParams && session.step.includes('_questions')) {
+      session.step = `${session.context.type}_recommendation`;
+    }
+
+    // Если клиент хочет пример без уточнений
+    if (messageLower.includes('пример') || messageLower.includes('покажи')) {
+      session.context = {
+        ...session.context,
+        area: session.context.type === 'office' ? '20' : 
+              session.context.type === 'workshop' ? '100' : 
+              session.context.type === 'warehouse' ? '200' :
+              '50',
+        height: session.context.type === 'office' ? '3' : 
+                session.context.type === 'workshop' ? '6' : 
+                session.context.type === 'warehouse' ? '8' :
+                '4',
+        lux: session.context.type === 'office' ? '400' : 
+             session.context.type === 'workshop' ? '300' : 
+             session.context.type === 'warehouse' ? '150' :
+             '10'
+      };
+      session.step = `${session.context.type}_recommendation`;
+    }
+
+    // Парсим параметры из сообщения
+    const areaMatch = message.match(/(\d{1,3})\s*(м²|кв|площадь)/i);
+    const heightMatch = message.match(/высота\s+(\d{1,2})\s*м/i);
+    const luxMatch = message.match(/(\d{2,3})\s*лк/i);
+    
+    if (areaMatch) session.context.area = areaMatch[1];
+    if (heightMatch) session.context.height = heightMatch[1];
+    if (luxMatch) session.context.lux = luxMatch[1];
+
+    // Ищем товары по категории
+    const products = findProducts(message, session.context.type);
+    const topProduct = products[0]; // Берем только ТОП-1
+    
+    const productText = topProduct ? 
+      `**ТОП МОДЕЛЬ:** ${topProduct.model} (${topProduct.power_w}Вт, ${topProduct.display_lumens}, ${topProduct.ip_rating}, ${topProduct.category})` : 
+      'Поиск по параметрам';
+
+    // Расчёт количества (если есть параметры)
+    let quantity = null;
+    if (topProduct && session.context.area && session.context.lux) {
+      const lumensNum = parseInt(topProduct.display_lumens.replace('лм', '')) || 0;
+      const areaNum = parseInt(session.context.area);
+      const luxNum = parseInt(session.context.lux);
+      quantity = calculateQuantity(areaNum, luxNum, lumensNum);
+    }
+
+    // Вариации фраз для рекомендаций
+    const phraseVariations = [
+      'рекомендую решение',
+      'предлагаю вариант', 
+      'подойдёт',
+      'оптимальное решение'
+    ];
+    const currentPhrase = phraseVariations[session.phrase_index % phraseVariations.length];
+    session.phrase_index++;
+
+    // Системный промпт с state machine
+    const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. ЦЕЛЬ: собрать параметры → дать 1 персонализированное решение → получить лид.
+
+**СТРОГОЕ ПРАВИЛО: ТОЛЬКО 1 РЕКОМЕНДАЦИЯ! Никаких списков, номеров или блоков "Из каталога".**
+
+**ЛОГИКА ДИАЛОГА:**
+1. **greeting**: "Привет! Какое помещение? (офис/цех/улица/склад)"
+2. **office_questions**: Максимум 2 вопроса: площадь, высота. Коротко!
+3. **workshop_questions**: Тип работ, площадь. НЕ ПОВТОРЯЙ из истории!
+4. **street_questions**: Тип (дорога/парковка), длина. По нормам: дороги — 15лк
+5. **warehouse_questions**: Высота, стеллажи, площадь
+6. **recommendation**: ТОЛЬКО когда есть параметры → 1 решение с расчётом
+7. **close**: CTA на PDF
+
+**КОНТЕКСТ ИЗ ИСТОРИИ:**
+${JSON.stringify(session.context)}
+
+**ТЕКУЩИЙ ШАГ:** ${session.step}
+
+**ПАРАМЕТРЫ ПО ТИПУ:**
+- ОФИС: area (м²), height (2-4м), lux (300-500)
+- ЦЕХ: area (м²), height (4-8м), lux (200-750), type (грубые/точные)
+- УЛИЦА: length/width (м), lux (5-20), type (дорога/парковка)
+- СКЛАД: area (м²), height (6-12м), lux (75-200), shelves (есть/нет)
+
+**РЕКОМЕНДАЦИИ — СТРОГО:**
+- ТОЛЬКО 1 модель: ${productText}
+- Расчёт: количество = (area × lux) / (lumens × 0.6)
+- ФОРМАТ: "Для [параметры] [фраза]: [модель] ([кол-во] шт.)"
+
+**ТЕКУЩАЯ ФРАЗА:** "${currentPhrase}"
+
+**ЗАПРОС:** ${message}
 
 **ФОРМАТ ОТВЕТА:**
-- **Введение**: "Для [помещение] рекомендую..." (учитывай контекст)
-- **2 модели** с характеристиками (модель, Вт, лм, IP, категория)
-- **Уточнение** (1 вопрос, если нужны детали)
-- **Преимущества**: "Гарантия 5 лет, производство РФ, бесплатный расчет"
-- **CTA**: "Хотите КП в PDF? Укажите телефон/email" (или вариация)
+- questions: "Уточните: [1 вопрос]? Или [2 вопрос]?" 
+- recommendation: "Для [параметры] [фраза]: [модель] ([кол-во] шт.) + характеристики + CTA"
+- Всегда: Гарантия 5 лет, производство РФ
 
-**ЗАПРОС КЛИЕНТА:** ${message}
-
-Отвечай **конкретно, профессионально, диалогово**. Учитывай историю. Закрывай на заявку.`;
+Отвечай **коротко, профессионально, как эксперт**.`;
 
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [
         { role: "system", content: sysPrompt },
-        { role: "user", content: message }
+        ...history.map(msg => ({ role: msg.role, content: msg.content }))
       ],
       temperature: 0.3,
       max_tokens: 400
     });
 
     const assistantResponse = completion.choices[0].message.content;
-    history.push({ role: "assistant", content: assistantResponse }); // Храним ответ
+    history.push({ role: "assistant", content: assistantResponse });
+    
+    // Сохраняем состояние сессии
+    cache.set(sessionCacheKey, session, 600);
     cache.set(historyCacheKey, history, 600);
 
-    logger.info(`AI response generated (${completion.usage?.total_tokens || 'N/A'} tokens)`);
+    logger.info(`AI response: ${assistantResponse.slice(0, 50)}... (${completion.usage?.total_tokens || 'N/A'} tokens)`);
     
     res.json({ 
       assistant: assistantResponse.trim(),
-      products: topProducts,
+      session: { step: session.step, context: session.context }, // Для debug
       tokens: completion.usage || null
     });
 
@@ -396,7 +495,8 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     catalogSize: catalog.length,
     openai: !!openai,
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    cacheSize: cache.keys().length
   });
 });
 
