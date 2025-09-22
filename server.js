@@ -36,7 +36,7 @@ const logger = winston.createLogger({
 
 // Helmet с ОТКЛЮЧЕННЫМ CSP (только security headers)
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: false,  // ← ПОЛНОЕ ОТКЛЮЧЕНИЕ CSP
   crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
@@ -48,8 +48,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Rate limit ТОЛЬКО на API endpoints
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 100, // максимум 100 запросов с IP
   keyGenerator: (req) => req.ip,
   standardHeaders: true,
   legacyHeaders: false,
@@ -77,14 +77,15 @@ app.use(express.static(__dirname));
 
 // Custom middleware: Логи + ПОЛНЫЙ CSP OVERRIDE
 app.use((req, res, next) => {
+  // Логируем запросы
   logger.info(`${req.method} ${req.url} from ${req.ip} - User-Agent: ${req.get('User-Agent')}`);
   
-  // ПОЛНОЕ УДАЛЕНИЕ CSP HEADERS
+  // ПОЛНОЕ УДАЛЕНИЕ CSP HEADERS (Render может добавлять свои)
   res.removeHeader('Content-Security-Policy');
   res.removeHeader('content-security-policy');
   res.removeHeader('X-Content-Security-Policy');
   
-  // МАКСИМАЛЬНО РАЗРЕШИТЕЛЬНЫЙ CSP
+  // МАКСИМАЛЬНО РАЗРЕШИТЕЛЬНЫЙ CSP (для inline JS/CSS)
   res.setHeader('Content-Security-Policy', 
     "default-src * 'unsafe-inline' 'unsafe-eval'; " +
     "script-src * 'unsafe-inline' 'unsafe-eval' blob: data:; " +
@@ -135,10 +136,11 @@ try {
   openai = null;
 }
 
-// Функция расчёта светового потока (fallback)
+// Функция расчёта светового потока (fallback, если lumens не указан или низкий)
 function calculateLumens(power_w, lumens) {
   if (!power_w || isNaN(power_w)) return null;
   const calculated = Math.round(power_w * 130); // 130 лм/Вт
+  // Если lumens низкий или null, используем расчёт
   return (lumens && lumens > power_w * 100) ? lumens : calculated;
 }
 
@@ -163,9 +165,9 @@ function findProducts(query) {
     area: q.match(/(\d{1,3})\s*(м²|кв\.м|площадь)/)?.[1] || null
   };
 
-  // Поиск по каталогу — ФИКС: исключаем null power_w
+  // Поиск по каталогу
   products = catalog
-    .filter(item => item.power_w && !isNaN(item.power_w) && item.power_w > 0)
+    .filter(item => item.power_w && !isNaN(item.power_w) && item.ip_rating) // ФИКС: IP > 0
     .map(item => {
       let score = 0;
       const itemLower = {
@@ -175,36 +177,27 @@ function findProducts(query) {
         raw: (item.raw || item.description || '').toLowerCase()
       };
       
-      // Точное совпадение модели (+5)
       if (itemLower.model.includes(q)) score += 5;
       
-      // Совпадение по названию (+3)
       if (itemLower.name.includes(q)) score += 3;
       
-      // Совпадение по категории (+4)
       if (keywords.category && itemLower.category.includes(keywords.category)) score += 4;
       
-      // Совпадение по мощности (+3 если близко, +2 если примерно)
       if (keywords.power && item.power_w) {
         const targetPower = parseInt(keywords.power);
         const powerDiff = Math.abs(item.power_w - targetPower);
         if (powerDiff <= 10) score += 3;
-        else if (powerDiff <= 30) score += 2; // ← ФИКС: завершена строка!
-        else if (powerDiff <= 100) score += 1;
+        else if (powerDiff <= 30) score += 2;
       }
       
-      // Точное совпадение IP (+4)
       if (keywords.ip && item.ip_rating?.toLowerCase() === `ip${keywords.ip}`) score += 4;
       
-      // Фазовый поиск по описанию (+2)
       if (itemLower.raw.includes(q)) score += 2;
       
-      // Бонус за популярные запросы
       if (q.includes('офис')) score += 1;
       if (q.includes('улица')) score += 1;
       if (q.includes('склад') || q.includes('цех')) score += 1;
       
-      // Fallback lumens (усиленный)
       const calculatedLumens = calculateLumens(item.power_w, item.lumens);
       const displayLumens = calculatedLumens ? `${calculatedLumens}лм` : 'не указан';
       
@@ -217,7 +210,7 @@ function findProducts(query) {
     })
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3); // Топ-3 результата
+    .slice(0, 3);
 
   cache.set(cacheKey, products);
   return products;
@@ -243,14 +236,12 @@ app.post("/api/quote", async (req, res) => {
       source: req.get('User-Agent') || 'Unknown'
     };
     
-    // Сохраняем в файл (Render free tier может не позволить — fallback в console)
     try {
       let quotes = JSON.parse(await fs.readFile("quotes.json", "utf8").catch(() => "[]"));
       quotes.push(entry);
       await fs.writeFile("quotes.json", JSON.stringify(quotes, null, 2));
       logger.info(`Lead saved to file: ${contact}`);
     } catch (fileErr) {
-      // Fallback: логируем в Winston
       logger.info('NEW LEAD:', JSON.stringify(entry, null, 2));
       logger.error(`File write error (Render limitation?): ${fileErr.message}`);
     }
@@ -267,7 +258,7 @@ app.post("/api/quote", async (req, res) => {
   }
 });
 
-// API: AI чат с рекомендациями — ИСПРАВЛЕННЫЙ ПРОМПТ
+// API: AI чат с рекомендациями — ФИКС: HISTORY + УСЛОВНЫЕ ВОПРОСЫ
 app.post("/api/chat", async (req, res) => {
   try {
     const { message } = req.body;
@@ -284,16 +275,16 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const ip = req.ip || 'unknown';
+    const ip = req.ip || 'unknown'; // Ключ для history (по IP)
     const historyCacheKey = `chat_history:${ip}`;
-    let history = cache.get(historyCacheKey) || [];
-    history.push({ role: "user", content: message });
+    let history = cache.get(historyCacheKey) || []; // Получаем историю
+    history.push({ role: "user", content: message }); // Добавляем новый запрос
     if (history.length > 5) history = history.slice(-5); // Храним последние 5
     cache.set(historyCacheKey, history, 600); // 10 мин TTL
 
     logger.info(`Chat request: "${message.slice(0, 50)}..." from ${ip}`);
 
-    // Ищем товары в каталоге
+    // Ищем товары в каталоге (с fallback lumens)
     const products = findProducts(message);
     const topProducts = products.slice(0, 2);
     
@@ -305,7 +296,7 @@ app.post("/api/chat", async (req, res) => {
         `${p.ip_rating || 'IP не указан'}, ${p.category || 'Категория не указана'})`
       ).join('\n') : '';
 
-    // Системный промпт — ФИКС: ВАРИАЦИИ CTA, УСЛОВНЫЕ ВОПРОСЫ, ЭНТЕХ
+    // Системный промпт — ФИКС: ВАРИАЦИИ CTA, УСЛОВНЫЕ ВОПРОСЫ, ФОТО
     const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. 
 Твоя цель: помочь клиенту подобрать оптимальное освещение и получить заявку на коммерческое предложение.
 
@@ -343,7 +334,7 @@ ${productText || 'Каталог не нашёл подходящих — уто
     });
 
     const assistantResponse = completion.choices[0].message.content;
-    history.push({ role: "assistant", content: assistantResponse }); // Добавляем ответ в историю
+    history.push({ role: "assistant", content: assistantResponse }); // Храним ответ
     cache.set(historyCacheKey, history, 600);
 
     logger.info(`AI response generated (${completion.usage?.total_tokens || 'N/A'} tokens)`);
