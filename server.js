@@ -582,14 +582,15 @@ ${JSON.stringify(session.context)}
   }
 });
 
-// Root route: отдаём index.html
+// ...
+// Root route: отдаём widget.html
 app.get('/', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
-  
+  const widgetPath = path.join(__dirname, 'widget.html');
+
   try {
     if (fs && fs.accessSync) {
-      fs.accessSync(indexPath);
-      res.sendFile(indexPath);
+      fs.accessSync(widgetPath);
+      res.sendFile(widgetPath);
     } else {
       res.send(`
         <!DOCTYPE html>
@@ -599,17 +600,18 @@ app.get('/', (req, res) => {
           <p>Загрузка чата...</p>
           <script>
             setTimeout(() => {
-              document.body.innerHTML += '<p><a href="/index.html">Открыть чат</a></p>';
+              document.body.innerHTML += '<p><a href="/widget.html">Открыть чат</a></p>';
             }, 2000);
           </script>
         </body></html>
       `);
     }
   } catch (err) {
-    logger.error(`Index.html not found: ${err.message}`);
+    logger.error(`widget.html not found: ${err.message}`);
     res.status(404).send('Chat interface not found. Contact administrator.');
   }
 });
+// ...
 
 // Health check endpoint
 app.get('/health', (req, res) => {
