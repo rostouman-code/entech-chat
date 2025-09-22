@@ -262,7 +262,7 @@ app.post("/api/quote", async (req, res) => {
   }
 });
 
-// API: AI чат с state machine + улучшенным диалогом
+// API: AI чат с state machine + улучшенным диалогом + ФИКС "Ваш вариант"
 app.post("/api/chat", async (req, res) => {
   try {
     const { message } = req.body;
@@ -316,6 +316,23 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
+    // ✅ ФИКС: Поддержка "ваш вариант" и нестандартных объектов
+    if (session.step === 'greeting' && (
+        messageLower.includes('ваш вариант') || 
+        messageLower.includes('ваш вариант') ||
+        messageLower.includes('стадион') || 
+        messageLower.includes('парк') || 
+        messageLower.includes('спорт') || 
+        messageLower.includes('площадь') ||
+        messageLower.includes('объект') || 
+        messageLower.includes('проект') ||
+        messageLower.includes('custom')
+    )) {
+        session.context.type = 'custom';
+        session.step = 'custom_questions';
+        logger.info(`Custom object detected: ${messageLower}`);
+    }
+
     // Проверяем, есть ли достаточно параметров для рекомендации
     const hasEnoughParams = session.context.area && session.context.height && session.context.lux;
     if (hasEnoughParams && session.step.includes('_questions')) {
@@ -329,14 +346,17 @@ app.post("/api/chat", async (req, res) => {
         area: session.context.type === 'office' ? '20' : 
               session.context.type === 'workshop' ? '100' : 
               session.context.type === 'warehouse' ? '200' :
+              session.context.type === 'custom' ? '1000' :
               '50',
         height: session.context.type === 'office' ? '3' : 
                 session.context.type === 'workshop' ? '6' : 
                 session.context.type === 'warehouse' ? '8' :
+                session.context.type === 'custom' ? '10' :
                 '4',
         lux: session.context.type === 'office' ? '400' : 
              session.context.type === 'workshop' ? '300' : 
              session.context.type === 'warehouse' ? '150' :
+             session.context.type === 'custom' ? '200' :
              '10'
       };
       session.step = `${session.context.type}_recommendation`;
@@ -355,9 +375,18 @@ app.post("/api/chat", async (req, res) => {
     const products = findProducts(message, session.context.type);
     const topProduct = products[0]; // Берем только ТОП-1
     
-    const productText = topProduct ? 
+    let productText = topProduct ? 
       `**ТОП МОДЕЛЬ:** ${topProduct.model} (${topProduct.power_w}Вт, ${topProduct.display_lumens}, ${topProduct.ip_rating}, ${topProduct.category})` : 
       'Поиск по параметрам';
+
+    // ✅ ФИКС: Расширенный поиск для нестандартных объектов
+    if (session.context.type === 'custom') {
+      const customProducts = findProducts(message, 'all'); // Ищем по всему каталогу
+      const topCustomProduct = customProducts[0];
+      if (topCustomProduct) {
+        productText = `**УНИВЕРСАЛЬНОЕ РЕШЕНИЕ:** ${topCustomProduct.model} (${topCustomProduct.power_w}Вт, ${topCustomProduct.display_lumens}, ${topCustomProduct.ip_rating})`;
+      }
+    }
 
     // Расчёт количества (если есть параметры)
     let quantity = null;
@@ -378,7 +407,7 @@ app.post("/api/chat", async (req, res) => {
     const currentPhrase = phraseVariations[session.phrase_index % phraseVariations.length];
     session.phrase_index++;
 
-    // Системный промпт с state machine
+    // ✅ ФИКС: Расширенный системный промпт с поддержкой custom объектов
     const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. ЦЕЛЬ: собрать параметры → дать 1 персонализированное решение → получить лид.
 
 **СТРОГОЕ ПРАВИЛО: ТОЛЬКО 1 РЕКОМЕНДАЦИЯ! Никаких списков, номеров или блоков "Из каталога".**
@@ -389,8 +418,9 @@ app.post("/api/chat", async (req, res) => {
 3. **workshop_questions**: Тип работ, площадь. НЕ ПОВТОРЯЙ из истории!
 4. **street_questions**: Тип (дорога/парковка), длина. По нормам: дороги — 15лк
 5. **warehouse_questions**: Высота, стеллажи, площадь
-6. **recommendation**: ТОЛЬКО когда есть параметры → 1 решение с расчётом
-7. **close**: CTA на PDF
+6. **custom_questions**: Тип объекта (стадион/парк), площадь, тип освещения
+7. **recommendation**: ТОЛЬКО когда есть параметры → 1 решение с расчётом
+8. **close**: CTA на PDF
 
 **КОНТЕКСТ ИЗ ИСТОРИИ:**
 ${JSON.stringify(session.context)}
@@ -402,6 +432,13 @@ ${JSON.stringify(session.context)}
 - ЦЕХ: area (м²), height (4-8м), lux (200-750), type (грубые/точные)
 - УЛИЦА: length/width (м), lux (5-20), type (дорога/парковка)
 - СКЛАД: area (м²), height (6-12м), lux (75-200), shelves (есть/нет)
+- **ВАШ ВАРИАНТ/custom**: тип объекта (стадион/парк/площадь), area (м²/м), lighting_type (функциональное/декоративное), lux (50-500)
+
+**ДОПОЛНИТЕЛЬНЫЕ ТИПЫ:**
+- **ВАШ ВАРИАНТ/custom**: стадион, парк, площадь, спорткомплекс, архитектурный объект
+  - Вопросы: тип объекта, площадь/длина, высота/тип освещения (функциональное/декоративное)
+  - Модели: универсальные (IP65+, 100-500Вт) или архитектурные из каталога
+  - Пример: "Для стадиона рекомендую прожекторы NRG-TOP с регулируемым углом"
 
 **РЕКОМЕНДАЦИИ — СТРОГО:**
 - ТОЛЬКО 1 модель: ${productText}
@@ -413,8 +450,8 @@ ${JSON.stringify(session.context)}
 **ЗАПРОС:** ${message}
 
 **ФОРМАТ ОТВЕТА:**
-- questions: "Уточните: [1 вопрос]? Или [2 вопрос]?" 
-- recommendation: "Для [параметры] [фраза]: [модель] ([кол-во] шт.) + характеристики + CTA"
+- custom_questions: "Расскажите о вашем объекте: тип (стадион/парк)? Площадь/длина? Тип освещения (функциональное/декоративное)?"
+- custom_recommendation: "Для [объект] [фраза]: [универсальная модель] ([кол-во] шт.) + CTA"
 - Всегда: Гарантия 5 лет, производство РФ
 
 Отвечай **коротко, профессионально, как эксперт**.`;
