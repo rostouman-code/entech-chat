@@ -10,7 +10,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import path from "path";
-import OpenAI from "openai";  // ← v3 default export
+import OpenAI from "openai";  // ← v4 default export
 
 dotenv.config();
 
@@ -101,10 +101,9 @@ try {
   logger.error(`Load error: ${err.message}`);
 }
 
-// OpenAI v3 для ES modules — ФИКС!
+// OpenAI v4 — ПРАВИЛЬНАЯ ИНИЦИАЛИЗАЦИЯ
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  dangerouslyAllowBrowser: false  // ← Только для Node.js
+  apiKey: process.env.OPENAI_API_KEY
 });
 
 // Функция поиска
@@ -211,7 +210,7 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
 Отвечай **конкретно и убедительно**, предлагай товары, закрывай на заявку.
 `;
 
-    // ФИКС: используем openai, не client
+    // OpenAI v4 — API тот же, что и v3!
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [

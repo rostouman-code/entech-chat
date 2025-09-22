@@ -17,7 +17,7 @@
     "express-rate-limit": "^7.1.5",
     "node-cache": "^5.1.2",
     "winston": "^3.11.0",
-    "openai": "^3.3.0"
+    "openai": "^4.23.1"
   },
   "devDependencies": {
     "jest": "^29.7.0",
