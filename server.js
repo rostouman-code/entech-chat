@@ -8,14 +8,15 @@ import NodeCache from "node-cache";
 import winston from "winston";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname } from "path";  // ← ФИКС: dirname из "path", НЕ из "fs"
-import OpenAI from "openai";
+import { dirname } from "path";
+import path from "path";
+import OpenAI from "openai";  // ← v3 default export
 
 dotenv.config();
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);  // ← Теперь работает
+const __dirname = dirname(__filename);
 
 // Trust proxy ПЕРВЫМ!
 app.set('trust proxy', 1);
@@ -100,7 +101,11 @@ try {
   logger.error(`Load error: ${err.message}`);
 }
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// OpenAI v3 для ES modules — ФИКС!
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  dangerouslyAllowBrowser: false  // ← Только для Node.js
+});
 
 // Функция поиска
 function findProducts(query) {
@@ -195,7 +200,7 @@ app.post("/api/chat", async (req, res) => {
 5. **Всегда заканчивай CTA**: "Хотите персональное КП с расчётом? Укажите телефон/email."
 
 **ФОРМАТ ОТВЕТА:**
-- **Введение**: "Для [тип помещения] рекомендую..."
+- **Введение**: "Для [тип помещения] рекомендуем..."
 - **Рекомендации**: 2-3 модели с краткими характеристиками (модель, Вт, лм, IP, гарантия).
 - **Преимущества**: "Гарантия 5-7 лет, бесплатное обслуживание, производство под заказ."
 - **CTA**: "Хотите КП в PDF? Укажите контакт для менеджера."
@@ -206,7 +211,8 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
 Отвечай **конкретно и убедительно**, предлагай товары, закрывай на заявку.
 `;
 
-    const completion = await client.chat.completions.create({
+    // ФИКС: используем openai, не client
+    const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [
         { role: "system", content: sysPrompt },
@@ -222,7 +228,7 @@ ${productText ? 'КАТАЛОГ НАШЁЛ:' + productText : 'Каталог н�
     });
   } catch (err) {
     logger.error(`Chat error: ${err.message}`);
-    res.status(500).json({ error: "AI error" });
+    res.status(500).json({ error: "AI error: " + err.message });
   }
 });
 
