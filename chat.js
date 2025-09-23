@@ -1,12 +1,10 @@
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://entech-chat.onrender.com';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://entech-chat.onrender.com';
 const messagesContainer = document.getElementById('messages');
 const inputField = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 let botIsTyping = false;
-
 // Состояние корзины
 let quoteBasket = JSON.parse(localStorage.getItem('entechBasket')) || [];
-
 // Обновление UI корзины
 function updateBasketUI() {
     const basketCountEl = document.getElementById('basket-count');
@@ -18,7 +16,6 @@ function updateBasketUI() {
         basketEl.style.display = quoteBasket.length ? 'block' : 'none';
     }
 }
-
 // Добавление товара в корзину
 function addToQuoteBasket(item) {
     delete item.price_rub; // Убираем цену
@@ -26,7 +23,6 @@ function addToQuoteBasket(item) {
     localStorage.setItem('entechBasket', JSON.stringify(quoteBasket));
     updateBasketUI();
 }
-
 // Запрос КП
 async function requestQuote() {
     if (quoteBasket.length === 0) {
@@ -55,16 +51,14 @@ async function requestQuote() {
         console.error('Quote error:', e);
     }
 }
-
 // Отображение сообщения в чате
 function addMessage(text, isBot = false) {
+    if (!messagesContainer) return; // Проверка на существование контейнера
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isBot ? 'bot-message' : 'user-message'}`;
-
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
-
-    let processedContent = text;
+    let processedContent = text || 'Нет ответа от сервера';
     processedContent = processedContent
         .replace(/https?:\/\/[^\s]+/g, (url) => `<a href="${url}" target="_blank">${url}</a>`)
         .replace(/###\s*(.*?)\s*###/g, '<h3>$1</h3>')
@@ -73,22 +67,18 @@ function addMessage(text, isBot = false) {
         .replace(/предлага[её]т вариант[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
         .replace(/оптимальное решение[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
         .replace(/подойд[её]т[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`);
-
     contentDiv.innerHTML = processedContent;
     messageDiv.appendChild(contentDiv);
-
     const timeDiv = document.createElement('div');
     timeDiv.className = 'message-time';
     timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     messageDiv.appendChild(timeDiv);
-
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
-
 // Запуск анимации печати бота
 function startTyping() {
-    if (botIsTyping) return;
+    if (botIsTyping || !messagesContainer) return;
     botIsTyping = true;
     const typingIndicator = document.createElement('div');
     typingIndicator.id = 'typing-indicator';
@@ -96,27 +86,23 @@ function startTyping() {
     messagesContainer.appendChild(typingIndicator);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
-
 // Остановка анимации печати бота
 function stopTyping() {
-    if (!botIsTyping) return;
+    if (!botIsTyping || !messagesContainer) return;
     botIsTyping = false;
     const typingIndicator = document.getElementById('typing-indicator');
     if (typingIndicator) {
         typingIndicator.remove();
     }
 }
-
 // Отправка сообщения на сервер
 async function sendMessage(message) {
-    if (message.trim() === '') return;
+    if (!message || message.trim() === '' || !messagesContainer || !inputField) return;
     addMessage(message);
     inputField.value = '';
-
     inputField.disabled = true;
     sendBtn.disabled = true;
     sendBtn.innerHTML = '<div class="loading"></div>';
-
     startTyping();
     try {
         const response = await fetch(`${API_BASE}/api/chat`, {
@@ -128,29 +114,27 @@ async function sendMessage(message) {
         stopTyping();
         if (data.error) {
             addMessage(`Ошибка: ${data.error}`, true);
-        } else if (data.assistant) {
-            addMessage(data.assistant, true);
         } else {
-            addMessage('Неизвестная ошибка. Попробуйте снова.', true);
+            addMessage(data.assistant || 'Нет данных от сервера', true);
         }
     } catch (error) {
         stopTyping();
         addMessage('Ошибка связи с сервером. Попробуйте позже.', true);
         console.error('Send message error:', error);
     }
-
     inputField.disabled = false;
     sendBtn.disabled = false;
     sendBtn.textContent = '➤';
     inputField.focus();
 }
-
 // Настройка кнопок
 function initQuickButtons() {
-    document.querySelectorAll('.quick-reply-button').forEach(button => {
+    const buttons = document.querySelectorAll('.quick-reply-button');
+    if (!buttons) return; // Проверка на наличие кнопок
+    buttons.forEach(button => {
         button.addEventListener('click', (e) => {
             e.preventDefault();
-            const payload = e.target.dataset.payload;
+            const payload = button.dataset.payload;
             if (payload === '__custom__') {
                 inputField.focus();
             } else {
@@ -159,40 +143,35 @@ function initQuickButtons() {
         });
     });
 }
-
 // Глобальные функции для Tilda
 window.quickSend = function(text) {
     sendMessage(text);
 };
-
 window.requestQuote = async function() {
     await requestQuote();
 };
-
 window.addMsg = function(content, sender) {
     addMessage(content, sender === 'assistant');
 };
-
 window.handleKey = function(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && inputField) {
         event.preventDefault();
         sendMessage(inputField.value);
     }
 };
-
 // Инициализация
 window.addEventListener('DOMContentLoaded', function() {
-    if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    if (!messagesContainer || !inputField || !sendBtn) {
+        console.error('Required elements not found:', { messagesContainer, inputField, sendBtn });
+        return;
     }
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
     initQuickButtons();
-    if (inputField && sendBtn) {
-        inputField.addEventListener('input', function() {
-            sendBtn.disabled = this.value.trim() === '';
-            sendBtn.innerHTML = this.value.trim() !== '' ? '➤' : '<div class="loading"></div>';
-        });
-        sendBtn.addEventListener('click', () => sendMessage(inputField.value));
-        inputField.addEventListener('keypress', handleKey);
-    }
+    inputField.addEventListener('input', function() {
+        sendBtn.disabled = this.value.trim() === '';
+        sendBtn.innerHTML = this.value.trim() !== '' ? '➤' : '<div class="loading"></div>';
+    });
+    sendBtn.addEventListener('click', () => sendMessage(inputField.value));
+    inputField.addEventListener('keypress', handleKey);
     updateBasketUI();
 });
