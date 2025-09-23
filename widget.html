@@ -1,305 +1,460 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entech AI-консультант</title>
+    <meta name="description" content="AI-консультант по светотехнике от Entech. Подберём светильники + расчёт.">
+    
+    <!-- Новая цветовая схема + ФИКС 4 -->
+    <style>
+        :root {
+            /* Основные тёмные */
+            --color-black: #000000;
+            --color-dark: #1b1918;
+            --color-dark-gray: #4d4d4d;
+            --color-medium-gray: #837f7e;
+            --color-light-gray: #9199af;
+            
+            /* Яркие акценты */
+            --color-yellow-primary: #fced20;
+            --color-yellow-soft: #f8fb72;
+            --color-yellow-light: #fbff9f;
+            --color-almost-white: #f9fefe;
+            
+            /* Градиенты */
+            --gradient-main: linear-gradient(135deg, #1b1918 0%, #2d2a28 50%, #4d4d4d 100%);
+            --gradient-accent: linear-gradient(135deg, #fced20 0%, #f8fb72 50%, #fbff9f 100%);
+            --gradient-button: linear-gradient(135deg, #fced20 0%, #fbff9f 100%);
 
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
+            /* ФИКС 4: Tilda совместимость */
+            * { margin: 0 !important; padding: 0 !important; }
+            body, html { 
+                height: 100vh !important; 
+                overflow: hidden !important; 
+                background: var(--gradient-main) !important;
+            }
+            .t-container, .t-col, .t-section { 
+                display: none !important; 
+            }
+            .t396__artboard { 
+                background: transparent !important; 
+                padding: 0 !important; 
             }
         }
-        return gk_fileData[filename] || "";
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        </script><link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-:root {
-  --brand: #0B6CB6; /* Основной синий ene-rgy.ru */
-  --accent: #00A88F; /* Зеленый акцент */
-  --bg: #FFFFFF;
-  --text: #222222;
-}
-#entech-widget {
-  position: fixed; bottom: 20px; right: 20px; width: 360px; max-width: 90vw; font-family: 'Inter', sans-serif; z-index: 99999;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.15); border-radius: 12px; overflow: hidden; background: var(--bg);
-  animation: fadeIn 0.3s ease-out;
-}
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 480px) { #entech-widget { width: 95vw; right: 2.5vw; } }
-#entech-widget .head {
-  background: linear-gradient(90deg, var(--brand), #0362A0); color: white; padding: 12px 14px; display: flex; align-items: center;
-}
-#entech-widget .head img { width: 28px; height: 28px; margin-right: 10px; border-radius: 4px; }
-#entech-widget .body { padding: 10px; max-height: 420px; overflow: auto; color: var(--text); }
-.quick-btn { background: #F3F7FB; border-radius: 8px; padding: 8px; margin: 6px 6px 0 0; display: inline-block; cursor: pointer; border: 1px solid #E6EEF9; transition: background 0.2s; }
-.quick-btn:hover { background: #E8F0FF; }
-.message { margin: 8px 0; padding: 8px 10px; border-radius: 8px; display: inline-block; max-width: 85%; animation: fadeIn 0.3s; }
-.msg-user { background: #E8F0FF; align-self: flex-end; font-weight: 600; }
-.msg-bot { background: #F4F4F6; }
-.typing { height: 18px; display: inline-block; vertical-align: middle; }
-.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #CCC; margin: 0 2px; animation: blink 1s infinite; }
-.dot:nth-child(2) { animation-delay: 0.2s; } .dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
-.product-card { border: 1px solid #ECECEC; padding: 8px; border-radius: 8px; display: flex; gap: 8px; align-items: center; position: relative; }
-.product-card::after { content: 'В наличии'; position: absolute; top: -5px; right: 8px; background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
-.product-card img { width: 70px; height: 70px; object-fit: cover; border-radius: 6px; }
-.specs { font-size: 13px; color: #444; }
-.btn { background: var(--brand); color: white; padding: 8px 10px; border-radius: 8px; border: none; cursor: pointer; transition: background 0.2s; font-size: 12px; }
-.btn:hover { background: #085A9A; }
-.btn-accent { background: var(--accent); }
-.footer { padding: 8px; border-top: 1px solid #F0F0F0; background: #FAFAFA; display: flex; gap: 8px; align-items: center; }
-.small { font-size: 13px; color: #666; }
-.testimonial { background: #F0F8FF; padding: 8px; border-radius: 8px; margin: 8px 0; font-style: italic; font-size: 12px; }
-#quote-basket { background: #F9F9F9; padding: 8px; border-radius: 8px; margin: 8px 0; display: none; }
-</style>
 
-<div id="entech-widget" aria-live="polite">
-  <div class="head">
-    <img src="https://ene-rgy.ru/favicon.ico" alt="Entech logo" onerror="this.style.display='none'">
-    <div>
-      <div style="font-weight: 700;">Entech AI-консультант</div>
-      <div style="font-size: 12px; opacity: 0.9;">Подберёт светильники + расчёт (акция до 30.09)</div>
-    </div>
-  </div>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--gradient-main);
+            color: var(--color-almost-white);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
 
-  <div class="body" id="chat-body">
-    <div id="messages" style="display: flex; flex-direction: column;"></div>
+        .chat-container {
+            flex: 1;
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-shadow: 0 0 40px rgba(252, 237, 32, 0.1);
+        }
 
-    <div id="quick" style="margin-top: 8px;"></div>
+        .header {
+            background: var(--gradient-accent);
+            color: var(--color-dark);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(252, 237, 32, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
 
-    <div id="products"></div>
-    <div id="quote-basket">
-      <div>В корзине: <span id="basket-count">0</span> товаров</div>
-      <button class="btn btn-accent" onclick="requestQuote()" style="margin-top:4px;">Запросить расчёт</button>
-    </div>
-    <div id="testimonial" class="testimonial" style="display:none;">"С Entech сэкономили время на подборе освещения!" — Клиент, Москва</div>
-  </div>
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(252, 237, 32, 0.4), transparent);
+            animation: shine 3s infinite;
+        }
 
-  <div class="footer">
-    <input id="user-input" type="text" placeholder="Напишите вопрос или используйте подсказки" style="flex:1; padding:8px; border-radius:8px; border:1px solid #E6E6E6;">
-    <button class="btn" onclick="sendMessage()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M2 21l20-9L2 3v7l14 2-14 2v7z" fill="white"/></svg>
-    </button>
-  </div>
-</div>
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
 
-<script>
-// ✅ ИСПРАВЛЕНО: Генерируем и храним уникальный ID сессии
-function getSessionId() {
-    let sessionId = localStorage.getItem('entech-session-id');
-    if (!sessionId) {
-        sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('entech-session-id', sessionId);
-    }
-    return sessionId;
-}
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
 
-const API_BASE = 'http://localhost:3000'; // Замени на https://your-server.com
-const messagesEl = document.getElementById('messages');
-const productsEl = document.getElementById('products');
-const inputEl = document.getElementById('user-input');
-const basketEl = document.getElementById('quote-basket');
-const quickEl = document.getElementById('quick');
-const testimonialEl = document.getElementById('testimonial');
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+            color: var(--color-dark-gray);
+        }
 
-let typingTimer, messageCount = 0, quoteBasket = JSON.parse(localStorage.getItem('entechBasket') || '[]');
-updateBasketUI();
+        .messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: rgba(27, 25, 24, 0.95);
+            backdrop-filter: blur(10px);
+        }
 
-let scenario = {};
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            animation: fadeIn 0.3s ease-out;
+        }
 
-fetch('scenario.json')
-  .then(r => r.json())
-  .then(sc => {
-    scenario = sc;
-    renderQuickReplies(sc.welcome.quick_replies);
-    setTimeout(() => addMessage(sc.welcome.message), sc.welcome.delay_ms);
-  })
-  .catch(() => {
-    addMessage('Здравствуйте! Подберу светильники для вашего объекта. Что нужно осветить?');
-  });
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-function renderQuickReplies(replies) {
-  quickEl.innerHTML = '';
-  replies.forEach(r => {
-    const btn = document.createElement('div'); // используем div вместо button
-    btn.className = 'quick-btn';
-    btn.textContent = r.label;
-    btn.onclick = () => {
-      if (r.payload === "__custom__") {
-        // обработка кастомного варианта
-        addMessage("✨ Хочу подобрать светильники для другого объекта", "user");
-        setTimeout(() => {
-          addMessage("Опишите, пожалуйста, объект: цех, ангар, спортзал, парковка или что-то другое?", "bot");
-          setTimeout(() => {
-            (scenario.followup_questions || []).forEach((q, i) => {
-              setTimeout(() => addMessage(q, "bot"), i * 1500);
-            });
-          }, 2000);
-        }, 500);
-      } else {
-        sendMessage(r.payload);
-      }
-    };
-    quickEl.appendChild(btn);
-  });
-}
+        .message.user {
+            justify-content: flex-end;
+        }
 
-function debounce(fn, delay) {
-  let timer;
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
-}
+        .message.assistant {
+            justify-content: flex-start;
+        }
 
-function addMessage(text, from = 'bot') {
-  const div = document.createElement('div');
-  div.className = `message ${from === 'user' ? 'msg-user' : 'msg-bot'}`;
-  div.textContent = text;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-  if (from === 'bot') messageCount++;
-  if (messageCount >= 3) showPopup();
-}
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            position: relative;
+            word-wrap: break-word;
+        }
 
-function showTyping() {
-  hideTyping();
-  const div = document.createElement('div');
-  div.id = 'typing';
-  div.className = 'message msg-bot';
-  div.innerHTML = '<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span> Печатает...';
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
+        .message.user .message-content {
+            background: var(--gradient-accent);
+            color: var(--color-dark);
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 12px rgba(252, 237, 32, 0.3);
+        }
 
-function hideTyping() {
-  const el = document.getElementById('typing');
-  if (el) el.remove();
-}
+        .message.assistant .message-content {
+            background: rgba(77, 77, 77, 0.6);
+            color: var(--color-almost-white);
+            border-bottom-left-radius: 4px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(252, 237, 32, 0.2);
+        }
 
-async function sendMessage(text) {
-  const message = text || inputEl.value.trim();
-  if (!message) return;
-  addMessage(message, 'user');
-  inputEl.value = '';
-  showTyping();
+        .message-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 4px;
+            text-align: right;
+        }
 
-  // ✅ ИСПРАВЛЕНО: Отправляем sessionId в API
-  const sessionId = getSessionId();
+        .input-area {
+            padding: 20px;
+            background: var(--color-dark);
+            border-top: 1px solid rgba(252, 237, 32, 0.2);
+        }
 
-  try {
-    const resp = await fetch(`${API_BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, sessionId })
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    hideTyping();
-    if (data.assistant) {
-      addMessage(data.assistant, 'bot');
-      setTimeout(() => testimonialEl.style.display = 'block', 2000);
-    }
-    renderProducts(data.raw_matches || data.products || []);
-  } catch (e) {
-    hideTyping();
-    addMessage('Ошибка связи. Попробуйте позже или позвоните: +7 (495) 123-45-67', 'bot');
-    console.error(e);
-  }
-}
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
 
-function renderProducts(items) {
-  productsEl.innerHTML = '';
-  if (!items || items.length === 0) return;
-  items.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'product-card';
-    card.innerHTML = `
-      <img src="${p.image_url || p.url || 'https://via.placeholder.com/70?text=No+img'}" alt="${p.model}" onerror="this.src='https://via.placeholder.com/70?text=No+img'">
-      <div style="flex:1">
-        <div style="font-weight:700">${p.model || p.name || '—'}</div>
-        <div class="specs">
-          ${p.power_w ? `${p.power_w}Вт` : ''} ${p.lumens ? `• ${p.lumens}лм` : ''} ${p.ip_rating ? `• ${p.ip_rating}` : ''} ${p.warranty_years ? `• Гарантия ${p.warranty_years} лет` : ''}
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid transparent;
+            border-radius: 25px;
+            background: rgba(252, 237, 32, 0.1);
+            color: var(--color-almost-white);
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .message-input::placeholder {
+            color: var(--color-light-gray);
+        }
+
+        .message-input:focus {
+            border-color: var(--color-yellow-primary);
+            box-shadow: 0 0 0 3px rgba(252, 237, 32, 0.2);
+            background: rgba(252, 237, 32, 0.15);
+        }
+
+        .send-button {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 50%;
+            background: var(--gradient-button);
+            color: var(--color-dark);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(252, 237, 32, 0.4);
+        }
+
+        .send-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(252, 237, 32, 0.5);
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Quick Reply Buttons */
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+
+        .quick-button {
+            background: rgba(252, 237, 32, 0.15);
+            color: var(--color-yellow-primary);
+            border: 1px solid rgba(252, 237, 32, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .quick-button:hover {
+            background: var(--gradient-button);
+            color: var(--color-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(252, 237, 32, 0.3);
+        }
+
+        /* ФИКС 3: Стили для кнопки "Ваш вариант" */
+        .quick-button[onclick*="ваш"] {
+            background: rgba(252, 237, 32, 0.25) !important;
+            border-color: var(--color-yellow-primary) !important;
+            font-weight: 600;
+            position: relative;
+        }
+
+        .quick-button[onclick*="ваш"]::after {
+            content: "✨";
+            margin-left: 5px;
+            font-size: 16px;
+        }
+
+        .quick-button[onclick*="ваш"]:hover {
+            background: var(--color-yellow-primary) !important;
+            color: var(--color-dark) !important;
+            transform: translateY(-3px) !important;
+            box-shadow: 0 6px 20px rgba(252, 237, 32, 0.4) !important;
+        }
+
+        /* CTA Button */
+        .cta-button {
+            background: var(--gradient-button);
+            color: var(--color-dark);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px auto;
+            display: block;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(252, 237, 32, 0.4);
+            text-decoration: none;
+            text-align: center;
+            max-width: 250px;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(252, 237, 32, 0.5);
+        }
+
+        /* Recommendation Highlight */
+        .recommendation-highlight {
+            background: linear-gradient(135deg, rgba(252, 237, 32, 0.1), rgba(248, 251, 114, 0.05));
+            border-left: 4px solid var(--color-yellow-primary);
+            padding: 16px;
+            margin: 10px 0;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .recommendation-highlight::before {
+            content: '💡';
+            position: absolute;
+            right: 12px;
+            top: 12px;
+            font-size: 20px;
+            opacity: 0.7;
+        }
+
+        .model-name {
+            color: var(--color-yellow-primary);
+            font-weight: 700;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .quantity-highlight {
+            background: rgba(252, 237, 32, 0.2);
+            color: var(--color-yellow-primary);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+            display: inline-block;
+            margin: 4px 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 100vh;
+                margin: 0;
+                border-radius: 0;
+            }
+            
+            .header {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 20px;
+            }
+            
+            .messages {
+                padding: 15px;
+            }
+            
+            .message-content {
+                max-width: 85%;
+            }
+            
+            .input-area {
+                padding: 15px;
+            }
+            
+            .quick-replies {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .quick-button {
+                width: 100%;
+                max-width: 200px;
+                text-align: center;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(27, 25, 24, 0.3);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--color-yellow-primary);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #f8fb72;
+        }
+
+        /* Loading animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(252, 237, 32, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--color-yellow-primary);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="header">
+            <h1>🤖 Entech AI-консультант</h1>
+            <p>Подберёт светильники + расчёт (акция до 30.09)</p>
         </div>
-        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <button class="btn" onclick="addToQuote(${JSON.stringify({...p, price_rub: undefined})})">В корзину</button>
-          <a href="${p.url || '#'}" target="_blank" class="btn" style="background:#EEE; color:var(--text);">Заказать в 1 клик</a>
+
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="message-content">
+                    <strong>Привет!</strong> Я AI-консультант Энтех по профессиональному освещению. Помогу подобрать оптимальное решение для вашего объекта. 
+                    <br><br>
+                    <strong>Выберите тип помещения:</strong>
+                    <div class="quick-replies">
+                        <a href="javascript:void(0)" class="quick-button" onclick="quickSend('офис')">🏢 Офис</a>
+                        <a href="javascript:void(0)" class="quick-button" onclick="quickSend('цех')">🏭 Цех</a>
+                        <a href="javascript:void(0)" class="quick-button" onclick="quickSend('улица')">🌆 Улица</a>
+                        <a href="javascript:void(0)" class="quick-button" onclick="quickSend('склад')">📦 Склад</a>
+                        <a href="javascript:void(0)" class="quick-button" onclick="quickSend('ваш вариант')">✨ Ваш вариант</a>
+                    </div>
+                </div>
+                <div class="message-time"></div>
+            </div>
         </div>
-      </div>
-    `;
-    productsEl.appendChild(card);
-  });
 
-  const cta = document.createElement('div');
-  cta.style.marginTop = '8px';
-  cta.innerHTML = `<button class="btn" onclick="requestQuote()" style="width:100%;">Запросить PDF-расчёт (цена по согласованию)</button>
-    <div class="small" style="text-align:center; margin-top:4px;">или <a href="tel:+74951234567" style="color:var(--brand);">позвонить +7(495)123-45-67</a></div>`;
-  productsEl.appendChild(cta);
-  basketEl.style.display = quoteBasket.length ? 'block' : 'none';
-}
+        <div class="input-area">
+            <div class="input-container">
+                <input 
+                    type="text" 
+                    class="message-input" 
+                    id="messageInput" 
+                    placeholder="Опишите ваш запрос или уточните параметры..." 
+                    onkeypress="handleKey(event)"
+                >
+                <button class="send-button" id="sendBtn" onclick="sendMsg()" disabled>
+                    ➤
+                </button>
+            </div>
+        </div>
+    </div>
 
-function addToQuote(item) {
-  delete item.price_rub; // Убираем цену
-  quoteBasket.push(item);
-  localStorage.setItem('entechBasket', JSON.stringify(quoteBasket));
-  updateBasketUI();
-  alert('Добавлено! В корзине: ' + quoteBasket.length + ' товаров');
-}
-
-function updateBasketUI() {
-  document.getElementById('basket-count').textContent = quoteBasket.length;
-  basketEl.style.display = quoteBasket.length ? 'block' : 'none';
-}
-
-async function requestQuote() {
-  if (quoteBasket.length === 0) return alert('Добавьте товары в корзину!');
-  const contact = prompt('Оставьте контакт (имя + телефон/email):');
-  if (!contact) return;
-  try {
-    const res = await fetch(`${API_BASE}/api/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact, items: quoteBasket, note: 'Запрос из виджета (цена по согласованию)' })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      alert('Запрос отправлен! Менеджер согласует цену и свяжется в течение часа.');
-      quoteBasket = []; localStorage.removeItem('entechBasket'); updateBasketUI();
-    } else alert('Ошибка отправки.');
-  } catch (e) { alert('Ошибка связи.'); console.error(e); }
-}
-
-function showPopup() {
-  if (confirm('Готов расчёт? Оставьте email для PDF + консультации менеджера.')) {
-    const email = prompt('Email:');
-    if (email) addToQuote({});
-  }
-}
-
-const debouncedSend = debounce(sendMessage, 300);
-inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') debouncedSend(); });
-</script>
+    <!-- Подключение chat.js -->
+    <script src="chat.js"></script>
+</body>
+</html>
