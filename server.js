@@ -11,7 +11,6 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import path from "path";
 import OpenAI from "openai";
-import fetch from "node-fetch";
 
 dotenv.config();
 
@@ -19,7 +18,7 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Trust proxy ПЕРВЫМ! (для Render.com)
+// Trust proxy for Render.com
 app.set('trust proxy', 1);
 
 // Logging
@@ -35,7 +34,7 @@ const logger = winston.createLogger({
   ]
 });
 
-// Helmet с ОТКЛЮЧЕННЫМ CSP (только security headers)
+// Helmet with permissive CSP
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -47,10 +46,10 @@ app.use(helmet({
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limit ТОЛЬКО на API endpoints
+// Rate limit for API endpoints
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 100, // максимум 100 запросов с IP
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Max 100 requests per IP
   keyGenerator: (req) => req.ip,
   standardHeaders: true,
   legacyHeaders: false,
@@ -59,13 +58,12 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// CORS для всех origins (Render + Tilda + localhost)
+// CORS for specific origins
 app.use(cors({
   origin: [
-    '*', 
-    'https://entech-chat.onrender.com', 
-    'https://*.tilda.ws', 
-    'https://tilda.cc', 
+    'https://entech-chat.onrender.com',
+    'https://*.tilda.ws',
+    'https://tilda.cc',
     'http://localhost:3000'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -73,19 +71,19 @@ app.use(cors({
   credentials: true
 }));
 
-// Static files (index.html, CSS, etc.)
+// Static files (widget.html, chat.js, styles.css, favicon.ico)
 app.use(express.static(__dirname));
 
-// Custom middleware: Логи + ПОЛНЫЙ CSP OVERRIDE
+// Custom middleware: Logging + CSP override
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.url} from ${req.ip} - User-Agent: ${req.get('User-Agent')}`);
   
-  // ПОЛНОЕ УДАЛЕНИЕ CSP HEADERS
+  // Remove existing CSP headers
   res.removeHeader('Content-Security-Policy');
   res.removeHeader('content-security-policy');
   res.removeHeader('X-Content-Security-Policy');
   
-  // МАКСИМАЛЬНО РАЗРЕШИТЕЛЬНЫЙ CSP
+  // Permissive CSP
   res.setHeader('Content-Security-Policy', 
     "default-src * 'unsafe-inline' 'unsafe-eval'; " +
     "script-src * 'unsafe-inline' 'unsafe-eval' blob: data:; " +
@@ -109,7 +107,7 @@ app.use((req, res, next) => {
 // Load catalog & scenario
 let catalog = [];
 let scenario = {};
-const cache = new NodeCache({ stdTTL: 600 }); // 10 минут кэш
+const cache = new NodeCache({ stdTTL: 600 }); // 10 minutes cache
 
 try {
   if (fs && readFileSync) {
@@ -123,7 +121,7 @@ try {
   scenario = {};
 }
 
-// OpenAI v4 — ПРАВИЛЬНАЯ ИНИЦИАЛИЗАЦИЯ
+// OpenAI initialization
 let openai;
 try {
   openai = new OpenAI({
@@ -135,14 +133,14 @@ try {
   openai = null;
 }
 
-// Функция расчёта светового потока (fallback)
+// Calculate lumens (fallback)
 function calculateLumens(power_w, lumens) {
   if (!power_w || isNaN(power_w)) return null;
-  const calculated = Math.round(power_w * 130); // 130 лм/Вт
+  const calculated = Math.round(power_w * 130); // 130 lm/W
   return (lumens && lumens > power_w * 100) ? lumens : calculated;
 }
 
-// Функция расчёта количества светильников
+// Calculate quantity
 function calculateQuantity(area, targetLux, lumens, utilization = 0.6) {
   if (!area || !targetLux || !lumens) return null;
   const totalLumensNeeded = area * targetLux / utilization;
@@ -150,9 +148,8 @@ function calculateQuantity(area, targetLux, lumens, utilization = 0.6) {
   return Math.max(1, quantity);
 }
 
-// ✅ ИСПРАВЛЕНО: Улучшенный поиск товаров с фильтрацией по категории и проверкой query
+// Product search
 function findProducts(query, category = null) {
-  // Проверка на undefined или null
   if (!query) {
     logger.warn('findProducts called with empty query.');
     return [];
@@ -227,7 +224,7 @@ function findProducts(query, category = null) {
   return products;
 }
 
-// API: Сохранение заявки на КП
+// API: Save quote
 app.post("/api/quote", async (req, res) => {
   try {
     const { name, contact, products, message, context } = req.body;
@@ -269,7 +266,7 @@ app.post("/api/quote", async (req, res) => {
   }
 });
 
-// ✅ ОБНОВЛЕННЫЙ API: передача диалога менеджеру
+// API: Transfer to manager
 app.post("/api/transfer-to-manager", async (req, res) => {
   try {
     const { contact, chatHistory } = req.body;
@@ -279,153 +276,80 @@ app.post("/api/transfer-to-manager", async (req, res) => {
         error: "Необходимы контактные данные и история чата" 
       });
     }
-    
-    // Форматируем историю для отправки
-    const formattedHistory = chatHistory.map(msg => 
-      `${msg.role === 'user' ? 'Клиент:' : 'Бот:'} ${msg.content}`
-    ).join('\n');
-    
-    const message = `Новый лид с сайта!\n\nКонтакт: ${contact}\n\nИстория диалога:\n${formattedHistory}`;
-    
-    // Отправка только в Telegram
-    const telegramStatus = await sendToTelegram(message);
 
-    if (telegramStatus.ok) {
-        res.json({ ok: true, message: "Диалог успешно передан." });
-    } else {
-        res.status(500).json({ 
-            ok: false, 
-            error: "Ошибка при передаче. Пожалуйста, попробуйте еще раз." 
-        });
-    }
-
-  } catch (err) {
-    logger.error(`Transfer API error: ${err.message}`);
-    res.status(500).json({ error: "Ошибка передачи диалога." });
-  }
-});
-
-// ✅ НОВАЯ ФУНКЦИЯ: отправка в Telegram
-async function sendToTelegram(message) {
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!botToken || !chatId) {
-        logger.error("Telegram bot token or chat ID is not set in .env");
-        return { ok: false };
-    }
-
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const payload = {
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'Markdown'
+    const entry = {
+      timestamp: new Date().toISOString(),
+      contact,
+      chatHistory,
+      source: req.get('User-Agent') || 'Unknown'
     };
 
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (data.ok) {
-            logger.info("Telegram message sent successfully.");
-            return { ok: true };
-        } else {
-            logger.error(`Telegram API error: ${JSON.stringify(data.description)}`);
-            return { ok: false, error: data.description };
-        }
-    } catch (err) {
-        logger.error(`Telegram request error: ${err.message}`);
-        return { ok: false, error: err.message };
+      let transfers = JSON.parse(await fs.readFile("transfers.json", "utf8").catch(() => "[]"));
+      transfers.push(entry);
+      await fs.writeFile("transfers.json", JSON.stringify(transfers, null, 2));
+      logger.info(`Transfer saved: ${contact}`);
+    } catch (fileErr) {
+      logger.info('NEW TRANSFER:', JSON.stringify(entry, null, 2));
+      logger.error(`File write error: ${fileErr.message}`);
     }
-}
 
+    res.json({ 
+      ok: true, 
+      message: "✅ Запрос передан менеджеру. Ожидайте звонка в течение часа."
+    });
+  } catch (err) {
+    logger.error(`Transfer API error: ${err.message}`);
+    res.status(500).json({ error: "Ошибка передачи запроса" });
+  }
+});
 
-// ✅ ИСПРАВЛЕНО: API чата использует sessionId
-app.post("/api/chat", async (req, res) => {
+// API: Chat
+app.post('/api/chat', async (req, res) => {
   try {
-    const { message, sessionId } = req.body;
-    
-    if (!message || typeof message !== 'string' || message.trim().length < 1) {
-      return res.status(400).json({ 
-        error: "Сообщение не может быть пустым" 
-      });
-    }
-    
-    if (!sessionId) {
-      return res.status(400).json({
-        error: "sessionId не предоставлен. Перезагрузите страницу."
-      });
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: 'Сообщение не указано' });
     }
 
-    if (!openai) {
-      return res.status(503).json({ 
-        error: "AI сервис временно недоступен" 
-      });
-    }
-
-    // ✅ ИСПРАВЛЕНО: Используем sessionId вместо IP
-    const historyCacheKey = `chat_history:${sessionId}`;
-    const sessionCacheKey = `chat_session:${sessionId}`;
+    const messageLower = message.toLowerCase();
+    const sessionCacheKey = `session:${req.ip}`;
+    const historyCacheKey = `history:${req.ip}`;
     
-    let history = cache.get(historyCacheKey) || [];
-    let session = cache.get(sessionCacheKey) || { 
-      step: 'greeting', 
-      context: {}, 
-      questions_asked: 0,
-      phrase_index: 0 
+    let session = cache.get(sessionCacheKey) || {
+      step: 'greeting',
+      context: {},
+      phrase_index: 0
     };
+    let history = cache.get(historyCacheKey) || [
+      { role: 'system', content: scenario.welcome?.message || 'Здравствуйте! Я — ваш AI-консультант Entech.' }
+    ];
+    
+    history.push({ role: 'user', content: message });
 
-    // Обновляем историю
-    history.push({ role: "user", content: message });
-    if (history.length > 5) history = history.slice(-5);
-    cache.set(historyCacheKey, history, 600);
-
-    logger.info(`Chat: "${message.slice(0, 50)}..." from ${sessionId} (step: ${session.step})`);
-
-    // Определяем шаг диалога
-    const messageLower = message.toLowerCase().trim();
-    if (session.step === 'greeting') {
-      if (['офис', 'office'].includes(messageLower)) {
-        session.context.type = 'office';
-        session.step = 'office_questions';
-      } else if (['цех', 'workshop', 'цеховая'].includes(messageLower)) {
-        session.context.type = 'workshop';
-        session.step = 'workshop_questions';
-      } else if (['улица', 'street', 'уличный'].includes(messageLower)) {
-        session.context.type = 'street';
-        session.step = 'street_questions';
-      } else if (['склад', 'warehouse'].includes(messageLower)) {
-        session.context.type = 'warehouse';
-        session.step = 'warehouse_questions';
-      }
+    if (messageLower.includes('офис')) {
+      session.context.type = 'office';
+      session.step = 'office_questions';
+    } else if (messageLower.includes('цех')) {
+      session.context.type = 'workshop';
+      session.step = 'workshop_questions';
+    } else if (messageLower.includes('улица')) {
+      session.context.type = 'street';
+      session.step = 'street_questions';
+    } else if (messageLower.includes('склад')) {
+      session.context.type = 'warehouse';
+      session.step = 'warehouse_questions';
+    } else if (messageLower.includes('ваш вариант') || messageLower.includes('другое')) {
+      session.context.type = 'custom';
+      session.step = 'custom_questions';
+    } else if (messageLower.includes('менеджер') || messageLower.includes('позвать')) {
+      session.step = 'transfer_to_manager';
     }
 
-    // ✅ ФИКС: Поддержка "ваш вариант" и нестандартных объектов
-    if (session.step === 'greeting' && (
-        messageLower.includes('ваш вариант') || 
-        messageLower.includes('ваш вариант') ||
-        messageLower.includes('стадион') || 
-        messageLower.includes('парк') || 
-        messageLower.includes('спорт') || 
-        messageLower.includes('площадь') ||
-        messageLower.includes('объект') || 
-        messageLower.includes('проект') ||
-        messageLower.includes('custom')
-    )) {
-        session.context.type = 'custom';
-        session.step = 'custom_questions';
-        logger.info(`Custom object detected: ${messageLower}`);
-    }
-
-    // Проверяем, есть ли достаточно параметров для рекомендации
-    const hasEnoughParams = session.context.area && session.context.height && session.context.lux;
-    if (hasEnoughParams && session.step.includes('_questions')) {
+    if (messageLower.includes('рекоменд') || messageLower.includes('предлож')) {
       session.step = `${session.context.type}_recommendation`;
     }
 
-    // Если клиент хочет пример без уточнений
     if (messageLower.includes('пример') || messageLower.includes('покажи')) {
       session.context = {
         ...session.context,
@@ -448,7 +372,6 @@ app.post("/api/chat", async (req, res) => {
       session.step = `${session.context.type}_recommendation`;
     }
 
-    // Парсим параметры из сообщения
     const areaMatch = message.match(/(\d{1,3})\s*(м²|кв|площадь)/i);
     const heightMatch = message.match(/высота\s+(\d{1,2})\s*м/i);
     const luxMatch = message.match(/(\d{2,3})\s*лк/i);
@@ -457,24 +380,21 @@ app.post("/api/chat", async (req, res) => {
     if (heightMatch) session.context.height = heightMatch[1];
     if (luxMatch) session.context.lux = luxMatch[1];
 
-    // Ищем товары по категории
     const products = findProducts(message, session.context.type);
-    const topProduct = products[0]; // Берем только ТОП-1
+    const topProduct = products[0];
     
     let productText = topProduct ? 
       `**ТОП МОДЕЛЬ:** ${topProduct.model} (${topProduct.power_w}Вт, ${topProduct.display_lumens}, ${topProduct.ip_rating}, ${topProduct.category})` : 
       'Поиск по параметрам';
 
-    // ✅ ФИКС: Расширенный поиск для нестандартных объектов
     if (session.context.type === 'custom') {
-      const customProducts = findProducts(message, 'all'); // Ищем по всему каталогу
+      const customProducts = findProducts(message, 'all');
       const topCustomProduct = customProducts[0];
       if (topCustomProduct) {
         productText = `**УНИВЕРСАЛЬНОЕ РЕШЕНИЕ:** ${topCustomProduct.model} (${topCustomProduct.power_w}Вт, ${topCustomProduct.display_lumens}, ${topCustomProduct.ip_rating})`;
       }
     }
 
-    // Расчёт количества (если есть параметры)
     let quantity = null;
     if (topProduct && session.context.area && session.context.lux) {
       const lumensNum = parseInt(topProduct.display_lumens.replace('лм', '')) || 0;
@@ -483,7 +403,6 @@ app.post("/api/chat", async (req, res) => {
       quantity = calculateQuantity(areaNum, luxNum, lumensNum);
     }
 
-    // Вариации фраз для рекомендаций
     const phraseVariations = [
       'рекомендую решение',
       'предлагаю вариант', 
@@ -493,7 +412,6 @@ app.post("/api/chat", async (req, res) => {
     const currentPhrase = phraseVariations[session.phrase_index % phraseVariations.length];
     session.phrase_index++;
 
-    // ✅ ФИКС: Расширенный системный промпт с поддержкой custom объектов
     const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. ЦЕЛЬ: собрать параметры → дать 1 персонализированное решение → получить лид.
 
 **СТРОГОЕ ПРАВИЛО: ТОЛЬКО 1 РЕКОМЕНДАЦИЯ! Никаких списков, номеров или блоков "Из каталога".**
@@ -540,53 +458,68 @@ ${JSON.stringify(session.context)}
 - custom_recommendation: "Для [объект] [фраза]: [универсальная модель] ([кол-во] шт.) + CTA"
 - Всегда: Гарантия 5 лет, производство РФ
 
+**АКЦИЯ:** Скидка на расчёт до 30.09.2025
+
 Отвечай **коротко, профессионально, как эксперт**.`;
 
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      messages: [
-        { role: "system", content: sysPrompt },
-        ...history.map(msg => ({ role: msg.role, content: msg.content }))
-      ],
-      temperature: 0.3,
-      max_tokens: 400
-    });
-
-    const assistantResponse = completion.choices[0].message.content;
-    history.push({ role: "assistant", content: assistantResponse });
-    
-    // Сохраняем состояние сессии
-    cache.set(sessionCacheKey, session, 600);
-    cache.set(historyCacheKey, history, 600);
-
-    logger.info(`AI response: ${assistantResponse.slice(0, 50)}... (${completion.usage?.total_tokens || 'N/A'} tokens)`);
-    
-    res.json({ 
-      assistant: assistantResponse.trim(),
-      session: { step: session.step, context: session.context }, // Для debug
-      tokens: completion.usage || null
-    });
-
-  } catch (err) {
-    logger.error(`Chat API error: ${err.message}`);
-    
-    if (err.status === 401) {
-      res.status(503).json({ error: "AI сервис недоступен (проверьте API ключ)" });
-    } else if (err.status === 429) {
-      res.status(429).json({ error: "AI перегружен. Попробуйте через минуту." });
-    } else {
-      res.status(500).json({ 
-        error: "Временная ошибка AI. Попробуйте перефразировать вопрос." 
+    let assistantResponse;
+    if (!openai) {
+      assistantResponse = scenario.welcome?.message || 'AI недоступен. Попробуйте позже или свяжитесь с менеджером.';
+      history.push({ role: 'assistant', content: assistantResponse });
+      cache.set(sessionCacheKey, session, 600);
+      cache.set(historyCacheKey, history, 600);
+      logger.warn('OpenAI unavailable, using fallback response');
+      return res.json({ 
+        assistant: assistantResponse.trim(),
+        session: { step: session.step, context: session.context },
+        tokens: null
       });
     }
-  }
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        messages: [
+          { role: "system", content: sysPrompt },
+          ...history.map(msg => ({ role: msg.role, content: msg.content }))
+        ],
+        temperature: 0.3,
+        max_tokens: 400
+      });
+
+      assistantResponse = completion.choices[0].message.content;
+      history.push({ role: "assistant", content: assistantResponse });
+      
+      cache.set(sessionCacheKey, session, 600);
+      cache.set(historyCacheKey, history, 600);
+
+      logger.info(`AI response: ${assistantResponse}`);
+      
+      res.json({ 
+        assistant: assistantResponse.trim(),
+        session: { step: session.step, context: session.context },
+        tokens: completion.usage || null
+      });
+    } catch (err) {
+      logger.error(`Chat API error: ${err.message}`);
+      assistantResponse = scenario.welcome?.message || 'AI временно недоступен. Попробуйте позже или свяжитесь с менеджером.';
+      history.push({ role: 'assistant', content: assistantResponse });
+      cache.set(sessionCacheKey, session, 600);
+      cache.set(historyCacheKey, history, 600);
+
+      if (err.status === 401) {
+        res.status(503).json({ error: "AI сервис недоступен (проверьте API ключ)" });
+      } else if (err.status === 429) {
+        res.status(429).json({ error: "AI перегружен. Попробуйте через минуту." });
+      } else {
+        res.status(500).json({ error: "Временная ошибка AI. Попробуйте перефразировать вопрос." });
+      }
+    }
 });
 
-// ...
-// Root route: отдаём widget.html
+// Root route: Serve widget.html
 app.get('/', (req, res) => {
   const widgetPath = path.join(__dirname, 'widget.html');
-
   try {
     if (fs && fs.accessSync) {
       fs.accessSync(widgetPath);
@@ -611,21 +544,44 @@ app.get('/', (req, res) => {
     res.status(404).send('Chat interface not found. Contact administrator.');
   }
 });
-// ...
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const filesExist = {
+    widget: false,
+    chat: false,
+    styles: false,
+    favicon: false
+  };
+  try {
+    fs.accessSync(path.join(__dirname, 'widget.html'));
+    filesExist.widget = true;
+  } catch {}
+  try {
+    fs.accessSync(path.join(__dirname, 'chat.js'));
+    filesExist.chat = true;
+  } catch {}
+  try {
+    fs.accessSync(path.join(__dirname, 'styles.css'));
+    filesExist.styles = true;
+  } catch {}
+  try {
+    fs.accessSync(path.join(__dirname, 'favicon.ico'));
+    filesExist.favicon = true;
+  } catch {}
+
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     catalogSize: catalog.length,
     openai: !!openai,
     uptime: process.uptime(),
-    cacheSize: cache.keys().length
+    cacheSize: cache.keys().length,
+    files: filesExist
   });
 });
 
-// 404 handler для API
+// 404 handler for API
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API endpoint not found' });
 });
@@ -649,4 +605,5 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info(`📱 Available at: http://localhost:${PORT}`);
   logger.info(`📦 Catalog: ${catalog.length} items loaded`);
   logger.info(`🤖 OpenAI: ${openai ? 'Ready' : 'Not initialized'}`);
+  // For Render.com free tier: Set up a cron-job (e.g., UptimeRobot) to ping /health every 10 min to prevent sleep
 });

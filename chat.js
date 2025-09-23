@@ -1,12 +1,10 @@
-// chat.js
-const API_BASE = 'http://localhost:3000';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://entech-chat.onrender.com';
 const messagesContainer = document.getElementById('messages');
-const inputField = document.getElementById('messageInput');
-const inputForm = document.getElementById('message-form'); // Если форма есть
-const sendBtn = document.getElementById('sendBtn');
+const inputField = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
 let botIsTyping = false;
 
-// Состояние корзины для виджета и основной страницы
+// Состояние корзины
 let quoteBasket = JSON.parse(localStorage.getItem('entechBasket')) || [];
 
 // Обновление UI корзины
@@ -23,14 +21,13 @@ function updateBasketUI() {
 
 // Добавление товара в корзину
 function addToQuoteBasket(item) {
-    // Убираем цену, если она есть
-    delete item.price_rub;
+    delete item.price_rub; // Убираем цену
     quoteBasket.push(item);
     localStorage.setItem('entechBasket', JSON.stringify(quoteBasket));
     updateBasketUI();
 }
 
-// Запрос КП (пока с alert)
+// Запрос КП
 async function requestQuote() {
     if (quoteBasket.length === 0) {
         alert('Добавьте товары в корзину!');
@@ -51,11 +48,11 @@ async function requestQuote() {
             localStorage.removeItem('entechBasket');
             updateBasketUI();
         } else {
-            alert('Ошибка отправки.');
+            alert(`Ошибка: ${data.error || 'Не удалось отправить запрос.'}`);
         }
     } catch (e) {
-        alert('Ошибка связи.');
-        console.error(e);
+        alert('Ошибка связи с сервером.');
+        console.error('Quote error:', e);
     }
 }
 
@@ -65,26 +62,17 @@ function addMessage(text, isBot = false) {
     messageDiv.className = `message ${isBot ? 'bot-message' : 'user-message'}`;
 
     const contentDiv = document.createElement('div');
-    contentDiv.className = `message-content`;
+    contentDiv.className = 'message-content';
 
     let processedContent = text;
-    // ... ваш код для замены ссылок и выделения рекомендаций остается без изменений
     processedContent = processedContent
         .replace(/https?:\/\/[^\s]+/g, (url) => `<a href="${url}" target="_blank">${url}</a>`)
-        .replace(/###\s*(.*?)\s*###/g, "<h3>$1</h3>")
-        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/рекомендую[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-            return `<div class="recommendation-highlight">${recommendation}</div>`;
-        })
-        .replace(/предлага[её] вариант[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-            return `<div class="recommendation-highlight">${recommendation}</div>`;
-        })
-        .replace(/оптимальное решение[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-            return `<div class="recommendation-highlight">${recommendation}</div>`;
-        })
-        .replace(/подойд[её]т[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-            return `<div class="recommendation-highlight">${recommendation}</div>`;
-        });
+        .replace(/###\s*(.*?)\s*###/g, '<h3>$1</h3>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/рекомендую[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
+        .replace(/предлага[её]т вариант[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
+        .replace(/оптимальное решение[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
+        .replace(/подойд[её]т[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`);
 
     contentDiv.innerHTML = processedContent;
     messageDiv.appendChild(contentDiv);
@@ -124,12 +112,11 @@ async function sendMessage(message) {
     if (message.trim() === '') return;
     addMessage(message);
     inputField.value = '';
-    
-    // Временно отключаем поле ввода и кнопку
+
     inputField.disabled = true;
     sendBtn.disabled = true;
     sendBtn.innerHTML = '<div class="loading"></div>';
-    
+
     startTyping();
     try {
         const response = await fetch(`${API_BASE}/api/chat`, {
@@ -139,21 +126,22 @@ async function sendMessage(message) {
         });
         const data = await response.json();
         stopTyping();
-        if (data.message) {
-            addMessage(data.message, true);
+        if (data.error) {
+            addMessage(`Ошибка: ${data.error}`, true);
+        } else if (data.assistant) {
+            addMessage(data.assistant, true);
+        } else {
+            addMessage('Неизвестная ошибка. Попробуйте снова.', true);
         }
     } catch (error) {
         stopTyping();
-        console.error('Error sending message:', error);
-        addMessage('Произошла ошибка. Пожалуйста, попробуйте еще раз.', true);
+        addMessage('Ошибка связи с сервером. Попробуйте позже.', true);
+        console.error('Send message error:', error);
     }
-    
-    // Включаем поле ввода и кнопку обратно
+
     inputField.disabled = false;
     sendBtn.disabled = false;
     sendBtn.textContent = '➤';
-    
-    // Возвращаем фокус на поле ввода
     inputField.focus();
 }
 
@@ -172,7 +160,7 @@ function initQuickButtons() {
     });
 }
 
-// ГЛОБАЛЬНЫЕ ФУНКЦИИ для Tilda (позволяют вызывать их из HTML)
+// Глобальные функции для Tilda
 window.quickSend = function(text) {
     sendMessage(text);
 };
@@ -192,20 +180,19 @@ window.handleKey = function(event) {
     }
 };
 
+// Инициализация
 window.addEventListener('DOMContentLoaded', function() {
-    const messages = document.getElementById('messages');
-    if (messages) messages.scrollTop = messages.scrollHeight;
-    
-    // Инициализация кнопок
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
     initQuickButtons();
-    
-    // Логика для кнопки "Отправить"
     if (inputField && sendBtn) {
         inputField.addEventListener('input', function() {
             sendBtn.disabled = this.value.trim() === '';
-            if (this.value.trim() !== '') {
-                sendBtn.innerHTML = '➤';
-            }
+            sendBtn.innerHTML = this.value.trim() !== '' ? '➤' : '<div class="loading"></div>';
         });
+        sendBtn.addEventListener('click', () => sendMessage(inputField.value));
+        inputField.addEventListener('keypress', handleKey);
     }
+    updateBasketUI();
 });

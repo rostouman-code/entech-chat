@@ -1,0 +1,111 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+    padding: 20px;
+}
+.chat-container {
+    max-width: 600px;
+    margin: auto;
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+h1 {
+    text-align: center;
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+p {
+    text-align: center;
+    color: #555;
+}
+.messages {
+    height: 300px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+.message {
+    margin: 10px 0;
+    padding: 10px;
+    border-radius: 5px;
+}
+.user-message {
+    background: #dcf8c6;
+    text-align: right;
+}
+.bot-message {
+    background: #ffffff;
+    border: 1px solid #ddd;
+}
+.message-time {
+    font-size: 12px;
+    color: #888;
+    margin-top: 5px;
+}
+.quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin: 10px 0;
+}
+.quick-reply-button {
+    margin: 5px;
+    padding: 10px 20px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+.quick-reply-button:hover {
+    background: #0056b3;
+}
+.input-container {
+    display: flex;
+    gap: 10px;
+}
+#message-input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+}
+#send-btn {
+    padding: 10px 20px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+#send-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+.typing-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #aaa;
+    border-radius: 50%;
+    animation: typing 1s infinite;
+    margin: 0 2px;
+}
+@keyframes typing {
+    0% { opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { opacity: 0.3; }
+}
+.recommendation-highlight {
+    background: #e6f3ff;
+    padding: 5px;
+    border-radius: 5px;
+    font-weight: bold;
+}
