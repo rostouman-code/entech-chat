@@ -110,11 +110,9 @@ let scenario = {};
 const cache = new NodeCache({ stdTTL: 600 }); // 10 minutes cache
 
 try {
-  if (fs && readFileSync) {
-    catalog = JSON.parse(readFileSync("catalog.json", "utf8"));
-    scenario = JSON.parse(readFileSync("scenario.json", "utf8"));
-    logger.info(`Loaded: ${catalog.length} items, scenario OK`);
-  }
+  catalog = JSON.parse(readFileSync("catalog.json", "utf8"));
+  scenario = JSON.parse(readFileSync("scenario.json", "utf8"));
+  logger.info(`Loaded: ${catalog.length} items, scenario OK`);
 } catch (err) {
   logger.error(`Load error: ${err.message}`);
   catalog = [];
@@ -476,45 +474,46 @@ ${JSON.stringify(session.context)}
       });
     }
 
-    try {
-      const completion = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-        messages: [
-          { role: "system", content: sysPrompt },
-          ...history.map(msg => ({ role: msg.role, content: msg.content }))
-        ],
-        temperature: 0.3,
-        max_tokens: 400
-      });
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: sysPrompt },
+        ...history.map(msg => ({ role: msg.role, content: msg.content }))
+      ],
+      temperature: 0.3,
+      max_tokens: 400
+    }).catch(err => {
+      throw err; // Propagate error to outer catch
+    });
 
-      assistantResponse = completion.choices[0].message.content;
-      history.push({ role: "assistant", content: assistantResponse });
-      
-      cache.set(sessionCacheKey, session, 600);
-      cache.set(historyCacheKey, history, 600);
+    assistantResponse = completion.choices[0].message.content;
+    history.push({ role: "assistant", content: assistantResponse });
+    
+    cache.set(sessionCacheKey, session, 600);
+    cache.set(historyCacheKey, history, 600);
 
-      logger.info(`AI response: ${assistantResponse}`);
-      
-      res.json({ 
-        assistant: assistantResponse.trim(),
-        session: { step: session.step, context: session.context },
-        tokens: completion.usage || null
-      });
-    } catch (err) {
-      logger.error(`Chat API error: ${err.message}`);
-      assistantResponse = scenario.welcome?.message || 'AI временно недоступен. Попробуйте позже или свяжитесь с менеджером.';
-      history.push({ role: 'assistant', content: assistantResponse });
-      cache.set(sessionCacheKey, session, 600);
-      cache.set(historyCacheKey, history, 600);
+    logger.info(`AI response: ${assistantResponse}`);
+    
+    res.json({ 
+      assistant: assistantResponse.trim(),
+      session: { step: session.step, context: session.context },
+      tokens: completion.usage || null
+    });
+  } catch (err) {
+    logger.error(`Chat API error: ${err.message}`);
+    assistantResponse = scenario.welcome?.message || 'AI временно недоступен. Попробуйте позже или свяжитесь с менеджером.';
+    history.push({ role: 'assistant', content: assistantResponse });
+    cache.set(sessionCacheKey, session, 600);
+    cache.set(historyCacheKey, history, 600);
 
-      if (err.status === 401) {
-        res.status(503).json({ error: "AI сервис недоступен (проверьте API ключ)" });
-      } else if (err.status === 429) {
-        res.status(429).json({ error: "AI перегружен. Попробуйте через минуту." });
-      } else {
-        res.status(500).json({ error: "Временная ошибка AI. Попробуйте перефразировать вопрос." });
-      }
+    if (err.status === 401) {
+      res.status(503).json({ error: "AI сервис недоступен (проверьте API ключ)" });
+    } else if (err.status === 429) {
+      res.status(429).json({ error: "AI перегружен. Попробуйте через минуту." });
+    } else {
+      res.status(500).json({ error: "Временная ошибка AI. Попробуйте перефразировать вопрос." });
     }
+  }
 });
 
 // Root route: Serve widget.html
