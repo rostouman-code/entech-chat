@@ -1,663 +1,191 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Энтех AI Консультант | Профессиональное освещение</title>
-    <meta name="description" content="AI-консультант по профессиональному освещению от Энтех. Подберем оптимальное решение для офиса, цеха, улицы, склада.">
-    
-    <style>
-        :root {
-            /* Основные тёмные */
-            --color-black: #000000;
-            --color-dark: #1b1918;
-            --color-dark-gray: #4d4d4d;
-            --color-medium-gray: #837f7e;
-            --color-light-gray: #9199af;
-            
-            /* Яркие акценты */
-            --color-yellow-primary: #fced20;
-            --color-yellow-soft: #f8fb72;
-            --color-yellow-light: #fbff9f;
-            --color-almost-white: #f9fefe;
-            
-            /* Градиенты */
-            --gradient-main: linear-gradient(135deg, #1b1918 0%, #2d2a28 50%, #4d4d4d 100%);
-        }
-
-        body {
-            font-family: 'Roboto', sans-serif;
-            margin: 0;
-            padding: 0;
-            background: var(--color-almost-white);
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
-            color: var(--color-dark);
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        .chat-container {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-            max-width: 100%;
-            height: 100%;
-            background-color: var(--color-almost-white);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            transition: all 0.3s ease;
-        }
-
-        /* Header */
-        .chat-header {
-            background: var(--gradient-main);
-            color: var(--color-yellow-primary);
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            position: relative;
-        }
-
-        .chat-header h3 {
-            margin: 0;
-            font-size: 1.2rem;
-            font-weight: 700;
-        }
-
-        /* Messages */
-        .messages {
-            flex: 1;
-            padding: 20px 15px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            scroll-behavior: smooth;
-        }
-
-        /* Message Bubbles */
-        .message {
-            display: flex;
-            flex-direction: column;
-            max-width: 80%;
-            word-wrap: break-word;
-            font-size: 0.95rem;
-        }
-
-        .message-content {
-            padding: 12px 16px;
-            border-radius: 20px;
-            line-height: 1.5;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-            white-space: pre-wrap;
-        }
-
-        .message-bot .message-content {
-            background-color: var(--color-dark-gray);
-            color: var(--color-almost-white);
-            border-bottom-left-radius: 4px;
-        }
-
-        .message-user {
-            align-self: flex-end;
-        }
-
-        .message-user .message-content {
-            background-color: var(--color-yellow-primary);
-            color: var(--color-black);
-            border-bottom-right-radius: 4px;
-        }
-        
-        /* Message Time */
-        .message-time {
-            font-size: 0.75rem;
-            color: var(--color-light-gray);
-            margin-top: 4px;
-            align-self: flex-start;
-        }
-        
-        .message-user .message-time {
-            align-self: flex-end;
-        }
-
-        /* Typing indicator */
-        .typing-indicator {
-            align-self: flex-start;
-            display: flex;
-            gap: 6px;
-            padding: 12px 16px;
-            background-color: var(--color-dark-gray);
-            border-radius: 20px;
-            border-bottom-left-radius: 4px;
-            animation: fadeIn 0.3s ease-in-out;
-        }
-
-        .typing-indicator span {
-            width: 8px;
-            height: 8px;
-            background-color: var(--color-almost-white);
-            border-radius: 50%;
-            opacity: 0.6;
-            animation: bounce 1.4s infinite ease-in-out;
-        }
-
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        /* Product List */
-        .product-list {
-            padding: 10px 15px;
-            overflow-x: auto;
-            white-space: nowrap;
-            display: flex;
-            gap: 15px;
-            border-top: 1px solid #eee;
-            background-color: var(--color-almost-white);
-        }
-
-        .product-card {
-            display: inline-block;
-            width: 220px;
-            flex-shrink: 0;
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .product-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
-        }
-
-        .product-image {
-            width: 100%;
-            height: 150px;
-            object-fit: cover;
-            border-bottom: 1px solid #ddd;
-        }
-
-        .product-info {
-            padding: 12px;
-        }
-
-        .product-info h4 {
-            margin: 0 0 8px 0;
-            font-size: 1rem;
-            white-space: normal;
-            line-height: 1.3;
-        }
-        .product-info p {
-            margin: 0;
-            font-size: 0.85rem;
-            color: var(--color-dark-gray);
-        }
-        .product-info p span {
-            font-weight: bold;
-            color: var(--color-dark);
-        }
-
-        .product-info .product-price {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--color-yellow-primary);
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
-        }
-
-        /* Quick Replies & Buttons */
-        .quick-replies-container {
-            padding: 10px 15px;
-            display: flex;
-            gap: 8px;
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-
-        .quick-reply-button, .action-button {
-            padding: 8px 12px;
-            border: 1px solid var(--color-light-gray);
-            border-radius: 20px;
-            background-color: #fff;
-            color: var(--color-dark);
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-
-        .quick-reply-button:hover, .action-button:hover {
-            background-color: var(--color-yellow-primary);
-            border-color: var(--color-yellow-primary);
-            color: var(--color-dark);
-        }
-        
-        .action-button {
-            font-weight: bold;
-        }
-
-        /* Input Area */
-        .input-area {
-            display: flex;
-            padding: 10px 15px;
-            border-top: 1px solid #ddd;
-            background-color: #fff;
-            align-items: center;
-        }
-
-        .input-area input {
-            flex: 1;
-            border: 1px solid #ddd;
-            border-radius: 20px;
-            padding: 10px 15px;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        .input-area input:focus {
-            border-color: var(--color-dark-gray);
-        }
-
-        .input-area button {
-            background: var(--color-dark);
-            color: var(--color-yellow-primary);
-            border: none;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            margin-left: 10px;
-            cursor: pointer;
-            transition: transform 0.2s ease, background-color 0.2s ease;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .input-area button:hover {
-            background: var(--color-black);
-            transform: scale(1.05);
-        }
-
-        .input-area button svg {
-            width: 20px;
-            height: 20px;
-            fill: var(--color-yellow-primary);
-        }
-        
-        /* Recommendation Highlight */
-        .recommendation-highlight {
-            background-color: var(--color-yellow-soft);
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-top: 10px;
-            font-style: italic;
-        }
-
-        /* Media Queries for Mobile */
-        @media (max-width: 480px) {
-            .chat-container {
-                height: 100vh;
-                border-radius: 0;
-            }
-        }
-
-        /* Loader */
-        .loader {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background-color: var(--color-almost-white);
-            z-index: 100;
-        }
-
-        .spinner {
-            border: 4px solid rgba(0, 0, 0, 0.1);
-            border-top: 4px solid var(--color-yellow-primary);
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Энтех AI-консультант</title>
+  <link rel="icon" href="/favicon.ico">
+  <style>
+    :root {
+      --brand: #0B6CB6;
+      --accent: #00A88F;
+      --bg: #fff;
+      --text: #222;
+    }
+    body {
+      font-family: "Inter", sans-serif;
+      margin: 0;
+      background: #f5f6fa;
+    }
+    .chat-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 360px;
+      max-width: 95vw;
+      height: 540px;
+      display: flex;
+      flex-direction: column;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      background: var(--bg);
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from {opacity:0; transform:translateY(10px);}
+      to {opacity:1; transform:translateY(0);}
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0;
+      font-weight: 700;
+    }
+    p {
+      font-size: 12px;
+      margin: 4px 0 0;
+    }
+    .chat-container > h1, .chat-container > p {
+      padding: 12px 14px;
+      background: linear-gradient(90deg, var(--brand), #0362A0);
+      color: white;
+    }
+    .messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: #fafafa;
+    }
+    .message {
+      padding: 8px 12px;
+      border-radius: 10px;
+      max-width: 75%;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .msg-user {
+      background: #E8F0FF;
+      align-self: flex-end;
+    }
+    .msg-bot {
+      background: #F4F4F6;
+      align-self: flex-start;
+    }
+    .quick-replies {
+      padding: 6px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      border-top: 1px solid #eee;
+    }
+    .quick-reply-button {
+      background: #F3F7FB;
+      border: 1px solid #E6EEF9;
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    .quick-reply-button:hover {
+      background: #E8F0FF;
+    }
+    .input-container {
+      display: flex;
+      border-top: 1px solid #eee;
+      padding: 8px;
+      background: #fff;
+    }
+    .input-container input {
+      flex: 1;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 14px;
+    }
+    .input-container button {
+      margin-left: 8px;
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0 14px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .input-container button:hover {
+      background: #085A9A;
+    }
+    /* карточки товаров */
+    .product-card {
+      border: 1px solid #E6EEF9;
+      background: #fff;
+      padding: 10px;
+      border-radius: 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .product-card img {
+      width: 70px;
+      height: 70px;
+      object-fit: contain;
+      border-radius: 6px;
+      border: 1px solid #eee;
+      background: #fafafa;
+    }
+    .product-card .title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .product-card .specs {
+      font-size: 12px;
+      color: #555;
+      margin-top: 4px;
+    }
+    .product-card .actions {
+      margin-top: 6px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .product-card .btn {
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      background: var(--brand);
+      color: white;
+    }
+  </style>
 </head>
 <body>
+  <div class="chat-container">
+    <h1>🤖 Энтех AI-консультант</h1>
+    <p>Подберёт светильники + расчёт (акция до 30.09.2025)</p>
 
-    <div class="chat-container">
-        
-        <div class="loader" id="loader">
-            <div class="spinner"></div>
-        </div>
+    <div id="messages" class="messages"></div>
 
-        <header class="chat-header">
-            <h3>AI-Консультант Entech</h3>
-        </header>
-        
-        <div class="messages" id="messages">
-            </div>
-
-        <div class="product-list" id="product-list" style="display:none;">
-            </div>
-        
-        <div class="quick-replies-container" id="quick-replies-container">
-            </div>
-
-        <div class="input-area">
-            <input type="text" id="user-input" placeholder="Введите ваше сообщение..." autofocus>
-            <button id="send-button" aria-label="Send message">
-                <svg viewBox="0 0 24 24">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
-            </button>
-        </div>
-
+    <div class="quick-replies">
+      <button class="quick-reply-button" data-payload="Освещение офиса">🏢 Офис</button>
+      <button class="quick-reply-button" data-payload="Освещение цеха">🏭 Цех</button>
+      <button class="quick-reply-button" data-payload="Освещение улицы">🌆 Улица</button>
+      <button class="quick-reply-button" data-payload="Освещение склада">📦 Склад</button>
+      <button class="quick-reply-button" data-payload="__custom__">✨ Ваш вариант</button>
     </div>
 
-    <script>
-        const API_BASE = window.location.origin;
-        const messages = document.getElementById('messages');
-        const userInput = document.getElementById('user-input');
-        const sendButton = document.getElementById('send-button');
-        const loader = document.getElementById('loader');
-        const quickRepliesContainer = document.getElementById('quick-replies-container');
-        const productListContainer = document.getElementById('product-list');
+    <div class="input-container">
+      <input id="message-input" type="text" placeholder="Введите сообщение...">
+      <button id="send-btn">➤</button>
+    </div>
+  </div>
 
-        let chatHistory = [];
-        let isTyping = false;
-        
-        // Отправка запроса на сервер
-        async function sendMessage(isButtonPayload = false) {
-            let message = isButtonPayload ? userInput.value : userInput.value.trim();
-            if (!message) return;
-
-            // Специальная логика для payload кнопки
-            if (message === 'transfer_to_manager') {
-                showUserMessage('Передать менеджеру');
-                showTransferForm();
-                return;
-            }
-
-            // Clear products on new user message
-            productListContainer.style.display = 'none';
-            productListContainer.innerHTML = '';
-            
-            showUserMessage(message);
-            userInput.value = '';
-            
-            // Сохраняем историю
-            chatHistory.push({ role: 'user', content: message });
-
-            showTypingIndicator();
-            
-            try {
-                const response = await fetch(`${API_BASE}/api/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Server error');
-                }
-
-                const data = await response.json();
-                
-                hideTypingIndicator();
-                showBotResponse(data.message, data.products, data.buttons, data.lead_context);
-            } catch (error) {
-                console.error('API Error:', error);
-                hideTypingIndicator();
-                showBotResponse('Извините, произошла ошибка. Попробуйте еще раз.');
-            }
-        }
-        
-        // Показать сообщение пользователя
-        function showUserMessage(text) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-user';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            contentDiv.textContent = text;
-            messageDiv.appendChild(contentDiv);
-            
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-time';
-            timeDiv.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            messageDiv.appendChild(timeDiv);
-            
-            messages.appendChild(messageDiv);
-            messages.scrollTop = messages.scrollHeight;
-        }
-        
-        // Показать ответ бота
-        function showBotResponse(text, products = [], buttons = [], lead_context = {}) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-bot';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            
-            // Обработка markdown для полужирного текста
-            const processedContent = text
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/###\s*(.*)/g, '<h3>$1</h3>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/решение для вас[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-                    return `<div class="recommendation-highlight">${recommendation}</div>`;
-                })
-                .replace(/предлага[её] вариант[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-                    return `<div class="recommendation-highlight">${recommendation}</div>`;
-                })
-                .replace(/оптимальное решение[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-                    return `<div class="recommendation-highlight">${recommendation}</div>`;
-                })
-                .replace(/подойд[её]т[:\s]*([^\\n]+)/gi, function(match, recommendation) {
-                    return `<div class="recommendation-highlight">${recommendation}</div>`;
-                });
-
-            contentDiv.innerHTML = processedContent;
-            messageDiv.appendChild(contentDiv);
-
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-time';
-            timeDiv.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            messageDiv.appendChild(timeDiv);
-
-            messages.appendChild(messageDiv);
-            messages.scrollTop = messages.scrollHeight;
-            
-            chatHistory.push({ role: 'bot', content: text });
-
-            // Display products if any
-            if (products.length > 0) {
-                productListContainer.innerHTML = '';
-                products.forEach(product => {
-                    const productCard = document.createElement('div');
-                    productCard.className = 'product-card';
-                    productCard.innerHTML = `
-                        <img src="${product.image || 'https://via.placeholder.com/220x150.png?text=No+Image'}" alt="${product.model}" class="product-image">
-                        <div class="product-info">
-                            <h4>${product.model}</h4>
-                            <p>Мощность: <span>${product.power_w} Вт</span></p>
-                            <p>Световой поток: <span>${product.display_lumens || 'не указан'}</span></p>
-                            <p>IP-рейтинг: <span>${product.ip_rating || 'не указан'}</span></p>
-                        </div>
-                    `;
-                    productListContainer.appendChild(productCard);
-                });
-                productListContainer.style.display = 'flex';
-                // Add a hidden button for "request quote" with lead context
-                if (Object.keys(lead_context).length > 0) {
-                    const quoteButton = document.createElement('div');
-                    quoteButton.className = 'action-button';
-                    quoteButton.textContent = '✅ Запросить КП по расчёту';
-                    quoteButton.onclick = () => showQuoteForm(lead_context);
-                    productListContainer.appendChild(quoteButton);
-                }
-            } else {
-                productListContainer.style.display = 'none';
-            }
-            
-            // Display quick reply buttons
-            initQuickButtons(buttons);
-        }
-        
-        // Typing indicator
-        function showTypingIndicator() {
-            if (isTyping) return;
-            const indicator = document.createElement('div');
-            indicator.className = 'message message-bot typing-indicator';
-            indicator.id = 'typing-indicator';
-            indicator.innerHTML = `<span></span><span></span><span></span>`;
-            messages.appendChild(indicator);
-            messages.scrollTop = messages.scrollHeight;
-            isTyping = true;
-        }
-
-        function hideTypingIndicator() {
-            const indicator = document.getElementById('typing-indicator');
-            if (indicator) {
-                indicator.remove();
-            }
-            isTyping = false;
-        }
-
-        // Show quote form
-        function showQuoteForm(context) {
-            const contact = prompt('Пожалуйста, оставьте ваш контакт (телефон или email), и мы подготовим для вас коммерческое предложение:');
-            if (contact) {
-                // Отправка на сервер (ваш API)
-                fetch(`${API_BASE}/api/quote`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contact, context })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.ok) {
-                        showBotResponse('✅ Спасибо! Ваша заявка принята. Менеджер свяжется с вами в ближайшее время.');
-                    } else {
-                        showBotResponse('Извините, не удалось отправить заявку.');
-                    }
-                })
-                .catch(err => {
-                    showBotResponse('Ошибка при отправке заявки.');
-                    console.error('Quote error:', err);
-                });
-            }
-        }
-        
-        // Initial welcome message + buttons
-        function initQuickButtons(buttons = []) {
-            quickRepliesContainer.innerHTML = '';
-            if (buttons.length > 0) {
-                buttons.forEach(button => {
-                    const btn = document.createElement('button');
-                    btn.className = 'quick-reply-button';
-                    btn.textContent = button.label;
-                    btn.onclick = () => {
-                        userInput.value = button.payload;
-                        sendMessage(true);
-                        quickRepliesContainer.innerHTML = '';
-                    };
-                    quickRepliesContainer.appendChild(btn);
-                });
-                quickRepliesContainer.style.display = 'flex';
-            } else {
-                quickRepliesContainer.style.display = 'none';
-            }
-        }
-
-        // Новая функция: запросить контакт и отправить на сервер
-        function showTransferForm() {
-            const contact = prompt('Пожалуйста, оставьте ваш контакт (телефон или email), и я передам историю диалога менеджеру:');
-            if (contact) {
-                showBotResponse('Отлично! Я передаю диалог нашему менеджеру.');
-                sendToManager(contact);
-            } else {
-                showBotResponse('Хорошо, остаемся на связи!');
-            }
-        }
-
-        // Новая функция: отправить данные на сервер
-        async function sendToManager(contact) {
-            try {
-                const response = await fetch(`${API_BASE}/api/transfer-to-manager`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contact, chatHistory })
-                });
-                const data = await response.json();
-                if (data.ok) {
-                    showBotResponse('✅ Диалог передан! Менеджер скоро свяжется с вами.');
-                    chatHistory = []; // Очищаем историю после передачи
-                } else {
-                    showBotResponse('Извините, не удалось передать диалог. Пожалуйста, попробуйте еще раз.');
-                }
-            } catch (error) {
-                console.error('Transfer API Error:', error);
-                showBotResponse('Произошла ошибка при передаче. Пожалуйста, попробуйте еще раз.');
-            }
-        }
-        
-        // Event listeners
-        sendButton.addEventListener('click', sendMessage);
-        userInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-
-        // Initial fetch for welcome message from server
-        async function fetchWelcomeMessage() {
-            try {
-                const response = await fetch(`${API_BASE}/api/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: "Привет" })
-                });
-                const data = await response.json();
-                loader.style.display = 'none';
-                setTimeout(() => {
-                    showBotResponse(data.message, [], data.buttons);
-                }, 1000);
-            } catch (error) {
-                console.error('Initial fetch error:', error);
-                loader.style.display = 'none';
-                showBotResponse('Извините, не удалось загрузить чат. Пожалуйста, обновите страницу.');
-            }
-        }
-
-        // Фикс для Tilda - запуск после полной загрузки
-        window.addEventListener('load', function() {
-            fetchWelcomeMessage();
-            const messages = document.getElementById('messages');
-            messages.scrollTop = messages.scrollHeight;
-        });
-    </script>
+  <script src="/chat.js"></script>
 </body>
 </html>
+

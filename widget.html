@@ -1,34 +1,120 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Энтех AI-консультант</title>
-    <link rel="icon" href="/favicon.ico"> <!-- Для устранения 404 на favicon.ico -->
-    <link rel="stylesheet" href="/styles.css"> <!-- Подключение стилей -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Энтех AI-консультант</title>
+  <link rel="icon" href="/favicon.ico">
+
+  <style>
+    :root {
+      --brand: #0B6CB6;
+      --accent: #00A88F;
+      --bg: #fff;
+      --text: #222;
+    }
+
+    #entech-widget {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 360px;
+      max-width: 90vw;
+      font-family: 'Inter', sans-serif;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      z-index: 9999;
+    }
+
+    #entech-widget .head {
+      background: linear-gradient(90deg, var(--brand), #0362A0);
+      color: #fff;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    #entech-widget .body {
+      flex: 1;
+      padding: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    #messages .message {
+      margin: 6px 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      max-width: 80%;
+    }
+    .user-message { background: #E8F0FF; align-self: flex-end; }
+    .bot-message { background: #F4F4F6; }
+
+    .quick-replies {
+      margin-top: 6px;
+    }
+    .quick-reply-button {
+      background: #F3F7FB;
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin: 4px 4px 0 0;
+      border: 1px solid #E6EEF9;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-block;
+    }
+    .quick-reply-button:hover {
+      background: #E8F0FF;
+    }
+
+    .footer {
+      display: flex;
+      border-top: 1px solid #eee;
+      padding: 8px;
+      gap: 6px;
+    }
+    .footer input {
+      flex: 1;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+    .footer button {
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <div class="chat-container">
-        <h1>🤖 Энтех AI-консультант</h1>
-        <p>Подберёт светильники + расчёт (акция до 30.09.2025)</p>
+  <div id="entech-widget">
+    <div class="head">🤖 Энтех AI-консультант</div>
 
-        <div id="messages" class="messages"></div> <!-- Контейнер для сообщений -->
+    <div class="body" id="chat-body">
+      <div id="messages" style="display:flex; flex-direction:column;"></div>
 
-        <div class="quick-replies">
-            <p>Выберите тип помещения:</p>
-            <button class="quick-reply-button" data-payload="Освещение офиса">🏢 Офис</button>
-            <button class="quick-reply-button" data-payload="Освещение цеха">🏭 Цех</button>
-            <button class="quick-reply-button" data-payload="Освещение улицы">🌆 Улица</button>
-            <button class="quick-reply-button" data-payload="Освещение склада">📦 Склад</button>
-            <button class="quick-reply-button" data-payload="__custom__">✨ Ваш вариант</button>
-        </div>
-
-        <div class="input-container">
-            <input id="message-input" type="text" placeholder="Введите сообщение...">
-            <button id="send-btn">➤</button>
-        </div>
+      <div class="quick-replies">
+        <button class="quick-reply-button" data-payload="Освещение офиса">🏢 Офис</button>
+        <button class="quick-reply-button" data-payload="Освещение цеха">🏭 Цех</button>
+        <button class="quick-reply-button" data-payload="Освещение улицы">🌆 Улица</button>
+        <button class="quick-reply-button" data-payload="Освещение склада">📦 Склад</button>
+        <button class="quick-reply-button" data-payload="__custom__">✨ Ваш вариант</button>
+      </div>
     </div>
 
-    <script src="/chat.js"></script> <!-- Подключение JS -->
+    <div class="footer">
+      <input id="message-input" type="text" placeholder="Введите сообщение...">
+      <button id="send-btn">➤</button>
+    </div>
+  </div>
+
+  <script src="/chat.js"></script>
 </body>
 </html>

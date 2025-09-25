@@ -1,177 +1,224 @@
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:10000' : 'https://entech-chat.onrender.com';
-const messagesContainer = document.getElementById('messages');
-const inputField = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
-let botIsTyping = false;
-// Состояние корзины
-let quoteBasket = JSON.parse(localStorage.getItem('entechBasket')) || [];
-// Обновление UI корзины
-function updateBasketUI() {
-    const basketCountEl = document.getElementById('basket-count');
-    const basketEl = document.getElementById('basket-container');
-    if (basketCountEl) {
-        basketCountEl.textContent = quoteBasket.length;
+// chat.js — компактный, устойчивый к ошибкам, рендерит картинки из catalog.json (image_base64)
+(function () {
+  // Если ваш виджет загружается с того же домена, используем относительные пути.
+  const API_BASE = window.ENTECH_API_BASE || window.location.origin;
+
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('message-input');
+  const sendBtn = document.getElementById('send-btn');
+  const quickContainer = document.querySelector('.quick-replies');
+
+  // session id (stable per browser)
+  function getSessionId() {
+    let sid = localStorage.getItem('entech-session-id');
+    if (!sid) {
+      sid = 's-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,9);
+      localStorage.setItem('entech-session-id', sid);
     }
-    if (basketEl) {
-        basketEl.style.display = quoteBasket.length ? 'block' : 'none';
-    }
-}
-// Добавление товара в корзину
-function addToQuoteBasket(item) {
-    delete item.price_rub; // Убираем цену
-    quoteBasket.push(item);
-    localStorage.setItem('entechBasket', JSON.stringify(quoteBasket));
-    updateBasketUI();
-}
-// Запрос КП
-async function requestQuote() {
-    if (quoteBasket.length === 0) {
-        alert('Добавьте товары в корзину!');
-        return;
-    }
-    const contact = prompt('Оставьте контакт (имя + телефон/email):');
-    if (!contact) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/quote`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contact, items: quoteBasket, note: 'Запрос из виджета (цена по согласованию)' })
-        });
-        const data = await res.json();
-        if (data.ok) {
-            alert('Запрос отправлен! Менеджер согласует цену и свяжется в течение часа.');
-            quoteBasket = [];
-            localStorage.removeItem('entechBasket');
-            updateBasketUI();
-        } else {
-            alert(`Ошибка: ${data.error || 'Не удалось отправить запрос.'}`);
-        }
-    } catch (e) {
-        alert('Ошибка связи с сервером.');
-        console.error('Quote error:', e);
-    }
-}
-// Отображение сообщения в чате
-function addMessage(text, isBot = false) {
-    if (!messagesContainer) return; // Проверка на существование контейнера
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isBot ? 'bot-message' : 'user-message'}`;
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content';
-    let processedContent = text || 'Нет ответа от сервера';
-    processedContent = processedContent
-        .replace(/https?:\/\/[^\s]+/g, (url) => `<a href="${url}" target="_blank">${url}</a>`)
-        .replace(/###\s*(.*?)\s*###/g, '<h3>$1</h3>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/рекомендую[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
-        .replace(/предлага[её]т вариант[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
-        .replace(/оптимальное решение[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`)
-        .replace(/подойд[её]т[:\s]*([^\\n]+)/gi, (match, recommendation) => `<div class="recommendation-highlight">${recommendation}</div>`);
-    contentDiv.innerHTML = processedContent;
-    messageDiv.appendChild(contentDiv);
-    const timeDiv = document.createElement('div');
-    timeDiv.className = 'message-time';
-    timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    messageDiv.appendChild(timeDiv);
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-// Запуск анимации печати бота
-function startTyping() {
-    if (botIsTyping || !messagesContainer) return;
-    botIsTyping = true;
-    const typingIndicator = document.createElement('div');
-    typingIndicator.id = 'typing-indicator';
-    typingIndicator.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
-    messagesContainer.appendChild(typingIndicator);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-// Остановка анимации печати бота
-function stopTyping() {
-    if (!botIsTyping || !messagesContainer) return;
-    botIsTyping = false;
-    const typingIndicator = document.getElementById('typing-indicator');
-    if (typingIndicator) {
-        typingIndicator.remove();
-    }
-}
-// Отправка сообщения на сервер
-async function sendMessage(message) {
-    if (!message || message.trim() === '' || !messagesContainer || !inputField) return;
-    addMessage(message);
-    inputField.value = '';
-    inputField.disabled = true;
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<div class="loading"></div>';
-    startTyping();
-    try {
-        const response = await fetch(`${API_BASE}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-        });
-        const data = await response.json();
-        stopTyping();
-        if (data.error) {
-            addMessage(`Ошибка: ${data.error}`, true);
-        } else {
-            addMessage(data.assistant || 'Нет данных от сервера', true);
-        }
-    } catch (error) {
-        stopTyping();
-        addMessage('Ошибка связи с сервером. Попробуйте позже.', true);
-        console.error('Send message error:', error);
-    }
-    inputField.disabled = false;
-    sendBtn.disabled = false;
-    sendBtn.textContent = '➤';
-    inputField.focus();
-}
-// Настройка кнопок
-function initQuickButtons() {
-    const buttons = document.querySelectorAll('.quick-reply-button');
-    if (!buttons) return; // Проверка на наличие кнопок
-    buttons.forEach(button => {
-        button.addEventListener('click', (e) => {
-            e.preventDefault();
-            const payload = button.dataset.payload;
-            if (payload === '__custom__') {
-                inputField.focus();
-            } else {
-                sendMessage(payload);
+    return sid;
+  }
+  const SESSION_ID = getSessionId();
+
+  // render message safely
+  function renderMessage(text, isBot = true) {
+    if (!messagesEl) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'message ' + (isBot ? 'message-bot' : 'message-user');
+
+    const cont = document.createElement('div');
+    cont.className = 'message-content';
+    // safe fallback and simple markdown bold
+    const safeText = (text || '').toString();
+    cont.innerHTML = safeText
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(?:\r\n|\r|\n)/g, '<br>');
+    wrap.appendChild(cont);
+
+    const time = document.createElement('div');
+    time.className = 'message-time';
+    time.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    wrap.appendChild(time);
+
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // render products (list)
+  function renderProducts(items = []) {
+    // remove existing product block if present
+    const old = document.getElementById('product-block');
+    if (old) old.remove();
+    if (!items || items.length === 0) return;
+
+    const block = document.createElement('div');
+    block.id = 'product-block';
+    block.className = 'product-list';
+
+    items.forEach(it => {
+      const card = document.createElement('div');
+      card.className = 'product-card';
+
+      const img = document.createElement('img');
+      img.className = 'product-image';
+      img.alt = it.model || it.name || 'Фото';
+      img.src = it.image_base64 || it.image || (it.image_url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="150"><rect width="100%" height="100%" fill="%23EEE"/><text x="50%" y="50%" font-size="14" text-anchor="middle" fill="%23999">No image</text></svg>');
+      card.appendChild(img);
+
+      const info = document.createElement('div');
+      info.className = 'product-info';
+      info.innerHTML = `<h4>${it.model || it.name || '—'}</h4>
+        <p>Мощность: <strong>${it.power_w ? it.power_w + ' Вт' : '—'}</strong></p>
+        <p>Световой поток: <strong>${it.display_lumens || 'не указан'}</strong></p>
+        <p>IP: <strong>${it.ip_rating || '—'}</strong></p>`;
+      // actions
+      const actions = document.createElement('div');
+      actions.style.marginTop = '8px';
+      const addBtn = document.createElement('button');
+      addBtn.className = 'action-button';
+      addBtn.textContent = 'В корзину';
+      addBtn.onclick = () => {
+        const basket = JSON.parse(localStorage.getItem('entechBasket') || '[]');
+        const copy = {...it};
+        delete copy.price_rub;
+        basket.push(copy);
+        localStorage.setItem('entechBasket', JSON.stringify(basket));
+        alert('Добавлено в корзину');
+      };
+      const oneClick = document.createElement('a');
+      oneClick.className = 'action-button';
+      oneClick.textContent = 'Заказать';
+      oneClick.href = it.url || '#';
+      oneClick.target = '_blank';
+      oneClick.style.marginLeft = '8px';
+      oneClick.style.background = '#EEE';
+      oneClick.style.color = '#222';
+
+      actions.appendChild(addBtn);
+      actions.appendChild(oneClick);
+      info.appendChild(actions);
+
+      card.appendChild(info);
+      block.appendChild(card);
+    });
+
+    messagesEl.parentNode.insertBefore(block, messagesEl.nextSibling);
+    block.scrollIntoView({behavior: 'smooth'});
+  }
+
+  // show quick replies (from scenario.json or DOM)
+  function initQuickButtons() {
+    if (!quickContainer) return;
+    // If scenario present, do nothing (widget HTML may already include buttons)
+    // Attach events:
+    const buttons = quickContainer.querySelectorAll('.quick-reply-button');
+    buttons.forEach(b => {
+      b.addEventListener('click', (e) => {
+        const payload = b.dataset.payload;
+        if (!payload) return;
+        // custom option -> focus input
+        if (payload === '__custom__') {
+          renderMessage('✨ Хочу подобрать светильники для другого объекта', false);
+          setTimeout(() => renderMessage('Опишите, пожалуйста, объект и укажите площадь/высоту (например: "склад 200 м², высота 6 м")', true), 400);
+          inputEl.focus();
+        } else if (payload === 'transfer_to_manager') {
+          renderMessage('Хорошо — передаю менеджеру. Пожалуйста, оставьте контакт в окне запроса.', false);
+          // show quick prompt
+          setTimeout(() => {
+            const contact = prompt('Оставьте контакт (имя + телефон/email):');
+            if (contact) {
+              fetch(`${API_BASE}/api/transfer-to-manager`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ contact, chatHistory: [] })
+              }).then(r => r.json()).then(d => alert(d?.message || 'Отправлено')).catch(()=>alert('Ошибка'));
             }
-        });
+          }, 400);
+        } else {
+          sendMessage(payload);
+        }
+      });
     });
-}
-// Глобальные функции для Tilda
-window.quickSend = function(text) {
-    sendMessage(text);
-};
-window.requestQuote = async function() {
-    await requestQuote();
-};
-window.addMsg = function(content, sender) {
-    addMessage(content, sender === 'assistant');
-};
-window.handleKey = function(event) {
-    if (event.key === 'Enter' && !event.shiftKey && inputField) {
-        event.preventDefault();
-        sendMessage(inputField.value);
+  }
+
+  // send message to server
+  let typingTimeout = null;
+  function setTyping(on) {
+    if (on) {
+      if (!document.getElementById('typing')) {
+        const div = document.createElement('div');
+        div.id = 'typing';
+        div.className = 'message message-bot';
+        div.innerHTML = '<div class="message-content"><span class="typing-indicator">•••</span> Печатает...</div>';
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+    } else {
+      const el = document.getElementById('typing');
+      if (el) el.remove();
     }
-};
-// Инициализация
-window.addEventListener('DOMContentLoaded', function() {
-    if (!messagesContainer || !inputField || !sendBtn) {
-        console.error('Required elements not found:', { messagesContainer, inputField, sendBtn });
+  }
+
+  async function sendMessage(text) {
+    const message = (text || inputEl.value || '').toString().trim();
+    if (!message) return;
+    renderMessage(message, false);
+    inputEl.value = '';
+    setTyping(true);
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ message, sessionId: SESSION_ID })
+      });
+      const data = await resp.json();
+      setTyping(false);
+
+      if (data.error) {
+        renderMessage('Ошибка: ' + (data.error || 'сервер вернул ошибку'), true);
         return;
+      }
+
+      const assistant = data.assistant || data.message || 'Нет ответа';
+      renderMessage(assistant, true);
+
+      // render found products
+      const products = data.products || [];
+      if (products.length) renderProducts(products);
+
+    } catch (e) {
+      setTyping(false);
+      console.error(e);
+      renderMessage('Ошибка связи с сервером. Попробуйте позже.', true);
     }
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  // events
+  document.addEventListener('DOMContentLoaded', () => {
     initQuickButtons();
-    inputField.addEventListener('input', function() {
-        sendBtn.disabled = this.value.trim() === '';
-        sendBtn.innerHTML = this.value.trim() !== '' ? '➤' : '<div class="loading"></div>';
+    // Welcome message from scenario.json (if exists)
+    fetch('/scenario.json').then(r => r.json()).then(s => {
+      if (s && s.welcome) {
+        // show a small delay
+        setTimeout(() => {
+          renderMessage(s.welcome.message || 'Здравствуйте! Я — ваш AI-консультант Entech.', true);
+          // render quick replies only if not already present (but our HTML has them)
+        }, s.welcome.delay_ms || 800);
+      }
+    }).catch(() => {
+      // fallback welcome
+      setTimeout(() => renderMessage('Здравствуйте! Я — ваш AI-консультант Entech. Что нужно осветить?', true), 800);
     });
-    sendBtn.addEventListener('click', () => sendMessage(inputField.value));
-    inputField.addEventListener('keypress', handleKey);
-    updateBasketUI();
-});
+
+    if (sendBtn) sendBtn.addEventListener('click', () => sendMessage());
+    if (inputEl) inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  });
+
+  // expose quickSend for Tilda if needed
+  window.entechQuickSend = sendMessage;
+})();
