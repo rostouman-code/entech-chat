@@ -1,85 +1,159 @@
-import pdfplumber
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+pdf_to_json.py
+Извлекает позиции из PDF (текстового) -> catalog.json
+
+Ключевые правки:
+- Нормализация чисел с пробелами (например, "12 000 лм" -> 12000)
+- Аккуратные regex для мощности (Вт) и светового потока (лм)
+- Пытаемся поймать IP и угол
+"""
+
 import json
 import re
+import sys
+from pathlib import Path
 
-def parse_line(line):
+try:
+    # pdfminer.six рекомендуется для извлечения текста
+    from pdfminer.high_level import extract_text
+except Exception:
+    extract_text = None
+    # Если нет pdfminer, предупредим, но дадим возможность упасть красиво.
+
+OUTPUT_JSON = Path(__file__).with_name("catalog.json")
+
+def parse_int_with_unit(txt: str, unit_regex: str):
+    if not txt:
+        return None
+    t = str(txt).replace("\n", " ").replace("\r", " ")
+    m = re.search(r'(\d[\d\s\u00A0,]{0,12})\s*' + unit_regex, t, flags=re.I)
+    if not m:
+        return None
+    raw = m.group(1)
+    raw = raw.replace("\u00A0", " ").replace(" ", "")
+    raw = raw.replace(",", "")
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
+def deduce_category(text):
+    if not text:
+        return None
+    t = text.lower()
+    if any(x in t for x in ["офис", "админ", "торгов", "офисный"]):
+        return "office"
+    if any(x in t for x in ["склад", "логист", "ангары", "паллет"]):
+        return "warehouse"
+    if any(x in t for x in ["цех", "цеховой", "производ", "индустри"]):
+        return "workshop"
+    if any(x in t for x in ["улиц", "наруж", "дорож", "фасад", "территор"]):
+        return "street"
+    return None
+
+def extract_ip_and_beam(text):
+    t = text or ""
+    ip_rating = None
+    m_ip = re.search(r'\b(ip)\s*([0-9]{2})\b', t, flags=re.I)
+    if m_ip:
+        ip_rating = "IP" + m_ip.group(2)
+
+    beam_angle = None
+    m_beam = re.search(r'(угол|beam)[^\d]{0,5}(\d{2,3})', t, flags=re.I)
+    if m_beam:
+        try:
+            beam_angle = int(m_beam.group(2))
+        except Exception:
+            beam_angle = None
+
+    return ip_rating, beam_angle
+
+def split_lines_to_items(text):
     """
-    Парсим строку из каталога: модель, мощность, люмены, IP-защита, категория, размеры, вес, гарантия.
-    Пример: 'Промышленный светильник ENTECH PRO 100Вт 12000лм IP65 600x200x100мм 5кг Гарантия 5 лет'
+    Очень грубый разбор по строкам:
+    Ищем блоки, похожие на карточки товара: строка с названием/моделью,
+    рядом/следом характеристики.
+    Под конкретный PDF при необходимости подкрутить.
     """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    items = []
 
-    # Мощность (Вт)
-    power_match = re.search(r'(\d+)\s?(Вт|W)', line, re.IGNORECASE)
-    power = int(power_match.group(1)) if power_match else None
+    buff = []
+    def flush():
+        if not buff:
+            return
+        blob = " ".join(buff)
+        model = None
 
-    # Световой поток (лм)
-    lumen_match = re.search(r'(\d+)\s?(лм|lm)', line, re.IGNORECASE)
-    lumens = int(lumen_match.group(1)) if lumen_match else None
+        # эвристика модели: слово с латиницей+цифрами/рус+цифры длиной >3
+        mm = re.search(r'([A-ZА-Я0-9][A-ZА-Я0-9\-\_\.]{2,})', blob, flags=re.I)
+        if mm:
+            model = mm.group(1)
 
-    # IP-защита
-    ip_match = re.search(r'(IP\d{2})', line, re.IGNORECASE)
-    ip_rating = ip_match.group(1).upper() if ip_match else None
+        power_w = parse_int_with_unit(blob, r'(вт|w)\b')
+        lumens  = parse_int_with_unit(blob, r'(лм|lm)\b')
+        ip, beam = extract_ip_and_beam(blob)
+        cat = deduce_category(blob)
 
-    # Категория
-    categories = ["промышленный", "уличный", "офисный", "спортивный", "взрывозащищенный", "прожектор"]
-    category = None
-    for cat in categories:
-        if cat.lower() in line.lower():
-            category = cat
-            break
+        if model:
+            items.append({
+                "id": f"pdf-{len(items)+1}",
+                "model": model,
+                "description": blob[:4000],
+                "power_w": power_w,
+                "lumens": lumens,
+                "ip_rating": ip,
+                "beam_angle": beam,
+                "category": cat,
+                "image_url": None
+            })
 
-    # Модель (ищем ENTECH …)
-    model_match = re.search(r'(ENTECH[^\s,]*)', line, re.IGNORECASE)
-    model = model_match.group(1) if model_match else None
+        buff.clear()
 
-    # Размеры (например: 600x200x100 мм или 600×200×100 mm)
-    size_match = re.search(r'(\d+)[x×](\d+)[x×](\d+)\s?(мм|mm)', line, re.IGNORECASE)
-    dimensions = {
-        "length_mm": int(size_match.group(1)),
-        "width_mm": int(size_match.group(2)),
-        "height_mm": int(size_match.group(3))
-    } if size_match else None
+    # очень простой разбор: каждые 3-6 строк — один товар
+    for line in lines:
+        buff.append(line)
+        if len(buff) >= 5:
+            flush()
+    flush()
+    return items
 
-    # Вес (например: 5кг, 12.5 kg)
-    weight_match = re.search(r'(\d+([.,]\d+)?)\s?(кг|kg)', line, re.IGNORECASE)
-    weight_kg = float(weight_match.group(1).replace(",", ".")) if weight_match else None
+def main(pdf_path, out_path=None):
+    if extract_text is None:
+        print("[ERROR] Установите pdfminer.six: pip install pdfminer.six", file=sys.stderr)
+        sys.exit(1)
 
-    # Гарантия (например: 5 лет, 3 года)
-    warranty_match = re.search(r'(\d+)\s?(лет|года|г.)', line, re.IGNORECASE)
-    warranty_years = int(warranty_match.group(1)) if warranty_match else None
+    pdf = Path(pdf_path)
+    out = Path(out_path) if out_path else OUTPUT_JSON
 
-    return {
-        "raw": line.strip(),
-        "model": model,
-        "power_w": power,
-        "lumens": lumens,
-        "ip_rating": ip_rating,
-        "category": category,
-        "dimensions_mm": dimensions,
-        "weight_kg": weight_kg,
-        "warranty_years": warranty_years
-    }
+    if not pdf.exists():
+        print(f"[ERROR] Файл не найден: {pdf}", file=sys.stderr)
+        sys.exit(1)
 
-def pdf_to_json(pdf_path, json_path):
-    catalog = []
+    try:
+        text = extract_text(str(pdf))
+    except Exception as e:
+        print(f"[ERROR] Не удалось извлечь текст из PDF: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if not text:
-                continue
+    items = split_lines_to_items(text)
 
-            lines = text.split("\n")
-            for line in lines:
-                # добавляем только строки с мощностью, люменами или IP
-                if re.search(r'(Вт|W|лм|lm|IP\d{2})', line, re.IGNORECASE):
-                    item = parse_line(line)
-                    catalog.append(item)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(catalog, f, ensure_ascii=False, indent=2)
-
-    print(f"Сохранено {len(catalog)} товаров в {json_path}")
+    print(f"[OK] Сохранено {len(items)} записей в {out}")
 
 if __name__ == "__main__":
-    pdf_to_json("catalog.pdf", "catalog.json")
+    # Использование:
+    # python pdf_to_json.py input.pdf
+    # python pdf_to_json.py input.pdf output.json
+    argv = sys.argv[1:]
+    if not argv:
+        print("Укажите путь к PDF, например:\n  python pdf_to_json.py katalog.pdf", file=sys.stderr)
+        sys.exit(1)
+    pdf_path = argv[0]
+    out_path = argv[1] if len(argv) >= 2 else None
+    main(pdf_path, out_path)

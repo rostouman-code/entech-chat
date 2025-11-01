@@ -1,383 +1,167 @@
-// server.js
-import express from "express";
-import dotenv from "dotenv";
-import fs from "fs/promises";
-import cors from "cors";
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-import NodeCache from "node-cache";
-import winston from "winston";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-import path from "path";
-import OpenAI from "openai";
-
-dotenv.config();
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import fs from 'fs';
+import nodemailer from 'nodemailer';
 
 const app = express();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const PORT = process.env.PORT || 3000;
 
-// Trust proxy
-app.set("trust proxy", 1);
+// --- security & basics
+app.set('trust proxy', 1);
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// Logging
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: "error.log" })
-  ]
-});
-
-// Helmet
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: false,
-    crossOriginResourcePolicy: false,
-    referrerPolicy: { policy: "same-origin" }
-  })
-);
-
-app.use(express.json({ limit: "50kb" }));
-app.use(express.urlencoded({ extended: true }));
-
-// Rate limit
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  keyGenerator: (req) => req.ip,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipFailedRequests: true,
-  message: { error: "Слишком много запросов. Попробуйте через 15 минут." }
-});
-app.use("/api/", limiter);
-
-// CORS
-app.use(
-  cors({
-    origin: [
-      "https://entech-chat.onrender.com",
-      "https://*.tilda.ws",
-      "https://tilda.cc",
-      "http://localhost:3000",
-      "http://localhost:10000"
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
-  })
-);
-
-// Static files
-app.use(express.static(__dirname));
-
-// Middleware logging
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url} from ${req.ip} - UA: ${req.get("User-Agent")}`);
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  next();
-});
-
-// Load catalog & scenario
-let catalog = [];
-let scenario = {};
-const cache = new NodeCache({ stdTTL: 600 });
-
-try {
-  catalog = JSON.parse(readFileSync("catalog.json", "utf8"));
-  scenario = JSON.parse(readFileSync("scenario.json", "utf8"));
-  logger.info(`Loaded: ${catalog.length} items, scenario OK`);
-} catch (err) {
-  logger.error(`Load error: ${err.message}`);
-  catalog = [];
-  scenario = {};
-}
-
-// OpenAI init
-let openai;
-try {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
-  logger.info("OpenAI client initialized");
-} catch (err) {
-  logger.error(`OpenAI init error: ${err.message}`);
-  openai = null;
-}
-
-// utils
-function calculateLumens(power_w, lumens) {
-  if (!power_w || isNaN(power_w)) return null;
-  const calculated = Math.round(power_w * 130);
-  return lumens && lumens > power_w * 100 ? lumens : calculated;
-}
-function calculateQuantity(area, targetLux, lumens, utilization = 0.6) {
-  if (!area || !targetLux || !lumens) return null;
-  const totalLumensNeeded = (area * targetLux) / utilization;
-  const quantity = Math.ceil(totalLumensNeeded / lumens);
-  return Math.max(1, quantity);
-}
-
-function findProducts(query, category = null) {
-  if (!query) return [];
-  const cacheKey = `search:${query.toLowerCase()}:${category || "all"}`;
-  let products = cache.get(cacheKey);
-  if (products !== undefined) return products;
-
-  const q = query.toLowerCase();
-  const keywords = {
-    power: q.match(/(\d{1,3})\s*(Вт|W|ватт)/)?.[1] || null,
-    ip: q.match(/ip(\d{2})/)?.[1] || null,
-    category:
-      category ||
-      (q.includes("склад") || q.includes("цех") || q.includes("производство") || q.includes("завод")
-        ? "промышленные"
-        : q.includes("улица") || q.includes("двор") || q.includes("парковка") || q.includes("внешнее")
-        ? "уличные"
-        : q.includes("офис") || q.includes("кабинет") || q.includes("контора")
-        ? "офисные"
-        : q.includes("магазин") || q.includes("торговый") || q.includes("retail")
-        ? "торговые"
-        : null),
-    area: q.match(/(\d{1,3})\s*(м²|кв\.м|площадь)/)?.[1] || null
-  };
-
-  products = catalog
-    .filter((item) => item.power_w && !isNaN(item.power_w))
-    .map((item) => {
-      let score = 0;
-      const itemLower = {
-        model: (item.model || "").toLowerCase(),
-        name: (item.name || "").toLowerCase(),
-        category: (item.category || "").toLowerCase(),
-        raw: (item.raw || item.description || "").toLowerCase()
-      };
-      if (itemLower.model.includes(q)) score += 5;
-      if (itemLower.name.includes(q)) score += 3;
-      if (keywords.category && itemLower.category.includes(keywords.category)) score += 4;
-      if (keywords.power && item.power_w) {
-        const targetPower = parseInt(keywords.power);
-        const powerDiff = Math.abs(item.power_w - targetPower);
-        if (powerDiff <= 10) score += 3;
-        else if (powerDiff <= 30) score += 2;
+// --- CORS
+const allow = ['https://ene-rgy.ru', 'https://*.tilda.ws'];
+const corsOptions = {
+  origin(origin, cb){
+    if (!origin) return cb(null, true);
+    const ok = allow.some(rule => {
+      if (rule.includes('*')){
+        const re = new RegExp('^' + rule.replace(/\./g,'\\.').replace(/\*/g,'.*') + '$');
+        const host = origin.replace(/^https?:\/\//,'');
+        return re.test(host);
       }
-      if (keywords.ip && item.ip_rating?.toLowerCase() === `ip${keywords.ip}`) score += 4;
-      if (itemLower.raw.includes(q)) score += 2;
-      if (q.includes("офис")) score += 1;
-      if (q.includes("улица")) score += 1;
-      if (q.includes("склад") || q.includes("цех")) score += 1;
+      return origin.startsWith(rule);
+    });
+    cb(ok ? null : new Error('CORS blocked'), ok);
+  }
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
-      const calculatedLumens = calculateLumens(item.power_w, item.lumens);
-      const displayLumens = calculatedLumens ? `${calculatedLumens}лм` : "не указан";
+// --- rate limits
+const commonLimiter = rateLimit({ windowMs: 60_000, max: 100 });
+const chatLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+const leadLimiter = rateLimit({ windowMs: 60_000, max: 20 });
+app.use(commonLimiter);
 
-      return {
-        ...item,
-        score,
-        relevance: score > 0 ? "high" : "low",
-        display_lumens: displayLumens
-      };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+// --- health
+app.get('/api/ping', (_,res)=> res.json({ ok:true, time:Date.now() }));
 
-  cache.set(cacheKey, products);
-  return products;
+// --- catalog
+let CATALOG = [];
+try {
+  CATALOG = JSON.parse(fs.readFileSync('./catalog.json','utf8'));
+  console.log(`catalog loaded: ${CATALOG.length} items`);
+} catch(e) {
+  console.warn('catalog.json not loaded:', e.message);
 }
 
-// API: quote
-app.post("/api/quote", async (req, res) => {
-  try {
-    const { name, contact, products, message, context } = req.body;
-    if (!contact) return res.status(400).json({ error: "Контакт обязателен для заявки" });
-    const entry = {
-      timestamp: new Date().toISOString(),
-      name: name || "Не указан",
-      contact,
-      products: products || [],
-      message: message || "",
-      context: context || {},
-      source: req.get("User-Agent") || "Unknown"
-    };
-    try {
-      let quotes = JSON.parse(await fs.readFile("quotes.json", "utf8").catch(() => "[]"));
-      quotes.push(entry);
-      await fs.writeFile("quotes.json", JSON.stringify(quotes, null, 2));
-      logger.info(`Lead saved: ${contact}`);
-    } catch (fileErr) {
-      logger.error(`File write error: ${fileErr.message}`);
-    }
-    res.json({
-      ok: true,
-      message: "✅ Заявка принята! Менеджер свяжется с вами в течение часа.",
-      leadId: Date.now().toString()
+// --- simple preselect
+function preselectProducts(params = {}) {
+  const { category, area, height, ip } = params;
+  const ppm = category === 'office' ? 10 : category === 'warehouse' ? 15 : category === 'workshop' ? 20 : 12; // W/m2
+  const need = area ? area * ppm : null;
+
+  const normIP = (x)=> String(x||'').toUpperCase();
+  const minIP = normIP(ip);
+
+  const items = CATALOG
+    .filter(it => {
+      if (minIP && normIP(it.ip_rating) < minIP) return false;
+      if (category && it.category && it.category !== category) return false;
+      return true;
+    })
+    .map(it => {
+      let score = 0;
+      if (need && it.power_w){
+        const diff = Math.abs(need - Number(it.power_w));
+        score += 1200 / (1 + diff);
+      }
+      if (height && it.beam_angle){
+        score += height >= 6 ? (it.beam_angle <= 90 ? 60 : 0) : (it.beam_angle >= 90 ? 40 : 0);
+      }
+      if (it.lumens) score += Math.min(Number(it.lumens)/100, 80);
+      return { ...it, _score: score };
+    })
+    .sort((a,b)=> b._score - a._score)
+    .slice(0,4);
+
+  return items;
+}
+
+// --- schemas
+const ChatSchema = z.object({
+  message: z.string().min(1),
+  sessionId: z.string().min(3),
+  params: z.object({
+    category: z.string().optional(),
+    area: z.number().optional(),
+    height: z.number().optional(),
+    ip: z.string().optional()
+  }).partial().optional()
+});
+
+const LeadSchema = z.object({
+  name: z.string().min(1).max(100),
+  contact: z.string().min(3).max(200),
+  comment: z.string().max(2000).optional(),
+  sessionId: z.string().min(3),
+  utm: z.record(z.string()).optional(),
+  referrer: z.string().optional(),
+  bucket: z.array(z.object({ model: z.string().optional(), id: z.any().optional() })).optional()
+});
+
+// --- mailer
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: false,
+  auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined
+});
+
+// --- endpoints
+app.post('/api/chat', chatLimiter, async (req,res)=>{
+  const parsed = ChatSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok:false, error:'Bad input' });
+
+  const { params = {} } = parsed.data;
+  const products = preselectProducts(params);
+  const reply = 'Подобрал варианты по вашим параметрам. Можно оформить КП или оставить контакты — менеджер свяжется.';
+  res.json({ ok:true, reply, products });
+});
+
+app.post('/api/lead', leadLimiter, async (req,res)=>{
+  const parsed = LeadSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok:false, error:'Bad input' });
+
+  const data = parsed.data;
+  // письмо
+  try{
+    const subject = `Заявка с виджета ENTECH (${new Date().toLocaleString('ru-RU')})`;
+    const html = `
+      <h2>Новая заявка</h2>
+      <p><b>Имя:</b> ${esc(data.name)}</p>
+      <p><b>Контакт:</b> ${esc(data.contact)}</p>
+      ${data.comment ? `<p><b>Комментарий:</b> ${esc(data.comment)}</p>` : ''}
+      <p><b>Session:</b> ${esc(data.sessionId)}</p>
+      ${data.bucket?.length ? `<p><b>Выбранные модели:</b> ${data.bucket.map(b=>esc(b.model||'')).join(', ')}</p>` : ''}
+      <hr>
+      <p><b>UTM:</b> ${esc(JSON.stringify(data.utm||{}))}</p>
+      <p><b>Referrer:</b> ${esc(data.referrer||'')}</p>
+    `;
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'robot@ene-rgy.ru',
+      to: 'info@ene-rgy.ru',
+      subject, html
     });
-  } catch (err) {
-    logger.error(`Quote API error: ${err.message}`);
-    res.status(500).json({ error: "Ошибка сохранения заявки" });
+  }catch(e){
+    console.error('MAIL ERROR:', e.message);
+    // не падаем, просто сообщаем клиенту
   }
+
+  console.log('LEAD:', { name:data.name, contact:data.contact, sessionId:data.sessionId });
+  res.json({ ok:true });
 });
 
-// API: transfer-to-manager
-app.post("/api/transfer-to-manager", async (req, res) => {
-  try {
-    const { contact, chatHistory } = req.body;
-    if (!contact || !chatHistory) return res.status(400).json({ error: "Необходимы контакт и история чата" });
-    const entry = {
-      timestamp: new Date().toISOString(),
-      contact,
-      chatHistory,
-      source: req.get("User-Agent") || "Unknown"
-    };
-    try {
-      let transfers = JSON.parse(await fs.readFile("transfers.json", "utf8").catch(() => "[]"));
-      transfers.push(entry);
-      await fs.writeFile("transfers.json", JSON.stringify(transfers, null, 2));
-      logger.info(`Transfer saved: ${contact}`);
-    } catch (fileErr) {
-      logger.error(`Transfer write error: ${fileErr.message}`);
-    }
-    res.json({ ok: true, message: "✅ Запрос передан менеджеру. Ожидайте звонка." });
-  } catch (err) {
-    logger.error(`Transfer API error: ${err.message}`);
-    res.status(500).json({ error: "Ошибка передачи запроса" });
-  }
-});
+function esc(s=''){ return String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
-// API: chat
-app.post("/api/chat", async (req, res) => {
-  let sessionCacheKey = `session:${req.ip}`;
-  let historyCacheKey = `history:${req.ip}`;
-  try {
-    const { message } = req.body;
-    if (!message || typeof message !== "string") return res.status(400).json({ error: "Сообщение не указано" });
-
-    let session = cache.get(sessionCacheKey) || { step: "greeting", context: {}, phrase_index: 0 };
-    let history =
-      cache.get(historyCacheKey) || [
-        { role: "system", content: scenario.welcome?.message || "Здравствуйте! Я — ваш AI-консультант Entech." }
-      ];
-
-    history.push({ role: "user", content: message });
-
-    // quick classifier
-    const messageLower = (message || "").toLowerCase();
-    if (messageLower.includes("офис")) {
-      session.context.type = "office";
-      session.step = "office_questions";
-    } else if (messageLower.includes("цех")) {
-      session.context.type = "workshop";
-      session.step = "workshop_questions";
-    } else if (messageLower.includes("улица")) {
-      session.context.type = "street";
-      session.step = "street_questions";
-    } else if (messageLower.includes("склад")) {
-      session.context.type = "warehouse";
-      session.step = "warehouse_questions";
-    } else if (messageLower.includes("ваш вариант") || messageLower.includes("другое")) {
-      session.context.type = "custom";
-      session.step = "custom_questions";
-    } else if (messageLower.includes("менеджер") || messageLower.includes("позвать")) {
-      session.step = "transfer_to_manager";
-    }
-
-    // parse params
-    const areaMatch = message.match(/(\d{1,6})\s*(м²|кв|площадь)/i);
-    const heightMatch = message.match(/высота\s+(\d{1,2})\s*м/i);
-    const luxMatch = message.match(/(\d{2,4})\s*лк/i);
-    if (areaMatch) session.context.area = areaMatch[1];
-    if (heightMatch) session.context.height = heightMatch[1];
-    if (luxMatch) session.context.lux = luxMatch[1];
-
-    const products = findProducts(message, session.context.type);
-
-    // If OpenAI not available - fallback
-    if (!openai) {
-      const fallback = scenario.fallback?.openai_down || "AI временно недоступен. Напишите параметры, и я помогу.";
-      history.push({ role: "assistant", content: fallback });
-      cache.set(sessionCacheKey, session, 600);
-      cache.set(historyCacheKey, history, 600);
-      return res.json({
-        assistant: fallback,
-        products,
-        session: { step: session.step, context: session.context }
-      });
-    }
-
-    // System prompt
-    const sysPrompt = `Ты — профессиональный AI-консультант Энтех по светотехнике. ЦЕЛЬ: собрать параметры → дать 1 персонализированное решение → получить лид.
-КОНТЕКСТ: ${JSON.stringify(session.context)}
-ШАГ: ${session.step}`;
-
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      messages: [{ role: "system", content: sysPrompt }, ...history],
-      temperature: 0.3,
-      max_tokens: 400
-    });
-
-    let assistantResponse = completion?.choices?.[0]?.message?.content || "";
-
-    // Fallbacks
-    if (!products.length) {
-      assistantResponse = scenario.fallback?.no_products || "Не нашёл подходящий вариант. Уточните параметры — и я предложу аналоги.";
-    }
-    if (!assistantResponse || assistantResponse.trim().length < 5) {
-      assistantResponse = scenario.fallback?.unclear_request || "Можете уточнить параметры объекта?";
-    }
-
-    history.push({ role: "assistant", content: assistantResponse });
-    cache.set(sessionCacheKey, session, 600);
-    cache.set(historyCacheKey, history, 600);
-
-    logger.info(`AI response to ${req.ip}: ${assistantResponse.slice(0, 200)}`);
-    res.json({
-      assistant: assistantResponse.trim(),
-      products,
-      session: { step: session.step, context: session.context },
-      tokens: completion.usage || null
-    });
-  } catch (err) {
-    logger.error(`Chat API error: ${err.message}`);
-    return res.status(500).json({ error: "Ошибка на сервере. Попробуйте позже." });
-  }
-});
-
-// root
-app.get("/", (req, res) => {
-  const widgetPath = path.join(__dirname, "widget.html");
-  try {
-    fs.accessSync(widgetPath);
-    res.sendFile(widgetPath);
-  } catch {
-    res.status(404).send("widget.html not found");
-  }
-});
-
-// health
-app.get("/health", (req, res) => {
-  res.json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    catalogSize: catalog.length,
-    openai: !!openai,
-    uptime: process.uptime(),
-    cacheSize: cache.keys().length
-  });
-});
-
-// 404 handlers
-app.use("/api/*", (req, res) => res.status(404).json({ error: "API endpoint not found" }));
-app.use((req, res) => res.status(404).json({ error: "Page not found" }));
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, "0.0.0.0", () => {
-  logger.info(`Server started on port ${PORT}`);
-});
+// --- start
+app.listen(PORT, ()=> console.log('API on :' + PORT));
