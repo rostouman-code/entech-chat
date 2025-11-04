@@ -19,7 +19,7 @@ const app = express();
 /* ---------------- CORS (обязателен до роутов) ---------------- */
 const allowList = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map(s => s.trim().replace(/\/+$/, "")) // убираем хвостовые /
+  .map((s) => s.trim().replace(/\/+$/, "")) // убираем хвостовые /
   .filter(Boolean);
 
 const corsMw = cors({
@@ -80,15 +80,17 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-/* ---------------- Утилиты ---------------- */
+/* ---------------- Утилиты для подбора ---------------- */
 function firstImage(p) {
   return p?.image_url || p?.image || "";
 }
+
+// простой эвристический подбор из каталога по ключевым словам
 function pickProductsByText(q, limit = 3) {
   if (!Array.isArray(catalog) || catalog.length === 0) return [];
   const s = (q || "").toLowerCase();
   const scored = catalog
-    .map(p => {
+    .map((p) => {
       const hay = `${p.model} ${p.name} ${p.category}`.toLowerCase();
       let score = 0;
       if (s.includes("склад")) score += /промышлен|склад/i.test(hay) ? 2 : 0;
@@ -102,7 +104,53 @@ function pickProductsByText(q, limit = 3) {
     })
     .sort((a, b) => b.score - a.score);
 
-  return scored.filter(x => x.score > 0).slice(0, limit).map(x => x.p);
+  return scored.filter((x) => x.score > 0).slice(0, limit).map((x) => x.p);
+}
+
+/* ---------------- Вспомогательные функции для расчёта ---------------- */
+// выбор целевой освещённости
+function pickTargetLux(userText = "") {
+  const s = (userText || "").toLowerCase();
+  if (/(пикинг|комплектац|отбор|packing|picking)/i.test(s)) return 300; // 300 лк
+  if (/(рабочие места|участок|станки|монтаж|сборка)/i.test(s)) return 500; // 500 лк
+  return 200; // склад — общие зоны
+}
+
+// оценка светового потока на светильник
+function estimateLumensPerFixture(p) {
+  if (p?.lumens && Number(p.lumens) > 0) return Number(p.lumens);
+
+  const power = Number(p?.power_w) || 0;
+  const name = `${p?.name || ""} ${p?.model || ""}`.toLowerCase();
+
+  let eff = 150; // дефолт
+  if (/nrg\-top|top|high\s*bay/i.test(name)) eff = 180; // high-bay
+  else if (/nrg\-ft|ft|linear/i.test(name)) eff = 155; // линейные
+
+  if (power > 0) return power * eff;
+
+  return 27000; // безопасный дефолт (≈150 Вт * 180 лм/Вт)
+}
+
+// расчёт количества светильников
+function estimateCount(areaM2, targetLux, lmPerFixture, cu = 0.6, mf = 0.8) {
+  if (!areaM2 || !targetLux || !lmPerFixture) return 0;
+  const maintainedLumensNeeded = areaM2 * targetLux; // лм на рабочей поверхности
+  const initialLumensNeeded = maintainedLumensNeeded / (cu * mf);
+  return Math.max(1, Math.round(initialLumensNeeded / lmPerFixture));
+}
+
+// вытаскиваем площадь из текста
+function extractAreaM2(s = "") {
+  const txt = String(s).replace(",", ".");
+  const m = txt.match(/(\d+(?:\.\d+)?)\s*(?:м2|м²|m2|sqm|кв\.?\s*м)/i);
+  if (m) return Math.round(parseFloat(m[1]));
+  const n = txt.match(/(\d+(?:\.\d+)?)/);
+  if (n) {
+    const val = parseFloat(n[1]);
+    if (val > 30) return Math.round(val);
+  }
+  return null;
 }
 
 /* ---------------- Основной эндпоинт чата ---------------- */
@@ -120,27 +168,65 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
+    // эвристический подбор моделей
     const prepicked = pickProductsByText(message, 3);
 
-    const sys = [
-      "Ты — специалист по подбору светильников компании Энтех.",
-      "Сначала уточняй: тип помещения, площадь (м²), высота (м), требования к IP, тип монтажа.",
-      "Затем кратко предложи 1–3 модели из каталога (если уместно) и поясни выбор.",
-      "Отвечай по-русски, кратко и по делу.",
-    ].join(" ");
+    // --- подготовка расчёта для модели и пользователя ---
+    const areaM2 = extractAreaM2(message);
+    const Ltarget = pickTargetLux(message);
+
+    const calcItems = (prepicked || []).map((p) => {
+      const lm = estimateLumensPerFixture(p);
+      const qty = areaM2 ? estimateCount(areaM2, Ltarget, lm) : null;
+      return {
+        title: p.name || p.model || "Модель",
+        power_w: p.power_w || null,
+        lumens: Math.round(lm),
+        qty,
+      };
+    });
 
     const ctxFromCatalog =
-      prepicked.length > 0
+      prepicked && prepicked.length
         ? prepicked
             .map(
               (p, i) =>
-                `${i + 1}) ${p.name || p.model} — ${p.power_w ?? "-"} Вт, ${
-                  p.lumens ?? "-"
-                } лм, категория: ${p.category || "-"}`
+                `${i + 1}) ${p.name || p.model} — ${p.power_w ?? "-"} Вт, ~${Math.round(
+                  estimateLumensPerFixture(p)
+                ).toLocaleString("ru-RU")} лм, категория: ${p.category || "-"}`
             )
             .join("\n")
         : "Подходящие модели эвристикой не найдены.";
 
+    const calcNote =
+      calcItems && calcItems.length
+        ? [
+            `Целевой уровень освещённости (лк): ${Ltarget}`,
+            areaM2 ? `Площадь: ${areaM2} м²` : "Площадь не распознана из текста",
+            ...calcItems.map(
+              (it, i) =>
+                `${i + 1}) ${it.title}: ориентир ~${it.lumens.toLocaleString(
+                  "ru-RU"
+                )} лм/шт` + (it.qty ? ` → количество ≈ ${it.qty} шт` : "")
+            ),
+          ].join("\n")
+        : "Нет данных для расчёта количества.";
+
+    // --- системная подсказка для модели (структурированный ответ + CTA) ---
+    const sys = [
+      "Ты — специалист по подбору светильников компании Энтех.",
+      "Структура ответа:",
+      "1) Короткое подтверждение понимания задачи (1 фраза).",
+      "2) Рекомендация 1–3 моделей: название, тип монтажа, IP, ориентировочная эффективность/лм.",
+      "3) Быстрый расчёт количества по площади и по целевому уровню освещённости:",
+      "   - склад общая зона: 200 лк; пикинг/комплектация: 300 лк; рабочие места: 500 лк.",
+      "   - используй CU≈0.6 и MF≈0.8; округляй числа; пиши «≈ N шт».",
+      "4) Короткий вывод: почему именно эти модели.",
+      "5) CTA: попроси длину×ширину, схему проходов/рядов и предложи коммерческое предложение с ценами/сроками.",
+      "Отвечай по-русски, кратко и по делу.",
+    ].join(" ");
+
+    // --- вызов модели ---
     let aiText = "";
     try {
       const completion = await openai.chat.completions.create({
@@ -151,17 +237,21 @@ app.post("/api/chat", async (req, res) => {
             role: "user",
             content:
               `Запрос пользователя: ${message}\n` +
+              (areaM2 ? `Распознана площадь: ${areaM2} м²\n` : "") +
               `UTM: ${JSON.stringify(utm)}; ref: ${ref || "-"}`,
           },
           {
             role: "assistant",
             content:
-              "Доступный контекст из каталога (может быть неполным):\n" +
-              ctxFromCatalog,
+              "Контекст из каталога (может быть неполным):\n" + ctxFromCatalog,
+          },
+          {
+            role: "assistant",
+            content: "Черновой инженерный расчёт (ориентиры):\n" + calcNote,
           },
         ],
         temperature: 0.3,
-        max_tokens: 500,
+        max_tokens: 700,
       });
       aiText =
         completion?.choices?.[0]?.message?.content?.trim() ||
@@ -174,14 +264,15 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
+    // --- ответ фронту ---
     res.json({
       assistant: aiText,
       products:
-        prepicked?.map(p => ({
+        prepicked?.map((p) => ({
           model: p.model,
           name: p.name,
           power_w: p.power_w,
-          lumens: p.lumens,
+          lumens: p.lumens || Math.round(estimateLumensPerFixture(p)),
           category: p.category,
           image_url: firstImage(p),
         })) || [],
